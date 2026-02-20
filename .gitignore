@@ -1,0 +1,41 @@
+# Python Virtual Environment
+fcs-project/
+venv/
+env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Encrypted Files
+uploads/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment Variables (CRITICAL - Never push secrets)
+.env
+*.env
+
+# SSL Certificates (For development only)
+*.pem
+*.key
+*.crt
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
