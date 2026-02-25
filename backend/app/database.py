@@ -2,23 +2,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# SECURITY NOTE: In production, we will verify this URL comes from a secure environment variable.
-# For local dev, we use SQLite (a file), but we treat it like Postgres.
-SQLALCHEMY_DATABASE_URL = "sqlite:///./secure_job_app.db"
+# PROFESSIONAL DATABASE: PostgreSQL
+# Connection format: postgresql://USER:PASSWORD@localhost/DB_NAME
+SQLALCHEMY_DATABASE_URL = "postgresql://secureadmin:FortKnoxPass123!@localhost/securejobdb"
 
-# connect_args is needed only for SQLite. We will remove it when we switch to Postgres on the VM.
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+# Create the engine (No 'check_same_thread' needed for Postgres)
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
-# This is the "Session Factory". Every request gets its own secure session.
+# The Session Factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# This class allows us to define tables as Python classes (ORM)
+# Base class for models
 Base = declarative_base()
 
-# Dependency Injection: This ensures the DB connection closes after every request.
-# preventing "Connection Leak" attacks.
+# Dependency Injection for API routes
 def get_db():
     db = SessionLocal()
     try:

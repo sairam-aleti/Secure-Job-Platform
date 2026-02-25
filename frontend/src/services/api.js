@@ -25,11 +25,24 @@ export const authAPI = {
   login: (data) => api.post('/login', data),
   sendOTP: (email) => api.post('/send-otp', { email }),
   verifyOTP: (data) => api.post('/verify-otp', data),
+  updatePublicKey: (data) => api.post('/users/public-key', data), // NEW
+  getUserPublicKey: (id) => api.get(`/users/${id}/public-key`), // NEW
 };
 
 export const profileAPI = {
   getProfile: () => api.get('/profile'),
   updateProfile: (data) => api.put('/profile', data),
+};
+
+export const companyAPI = {
+  create: (data) => api.post('/companies', data),
+  list: () => api.get('/companies'),
+};
+
+export const jobAPI = {
+  create: (data) => api.post('/jobs', data),
+  list: () => api.get('/jobs'),
+  myJobs: () => api.get('/my-jobs'),
 };
 
 export const resumeAPI = {
@@ -38,6 +51,17 @@ export const resumeAPI = {
   }),
   download: (id) => api.get(`/download-resume/${id}`, { responseType: 'blob' }),
   list: () => api.get('/my-resumes'),
+};
+
+export const applicationAPI = {
+  apply: (data) => api.post('/applications', data),
+  myApplications: () => api.get('/applications/my'),
+  recruiterApplications: () => api.get('/applications/recruiter'),
+};
+
+export const messageAPI = {
+  sendMessage: (data) => api.post('/messages', data), // NEW
+  getMessages: (id) => api.get(`/messages/${id}`), // NEW
 };
 
 export const adminAPI = {

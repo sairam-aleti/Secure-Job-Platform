@@ -7,8 +7,30 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone 
 import os
 import base64
+import hashlib
+
+def create_audit_log(db: Session, action: str, admin_email: str, target: str = None):
+    last_log = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
+    prev_hash = last_log.log_hash if last_log else "0"
+    
+    # Use timezone-aware UTC
+    now = datetime.now(timezone.utc)
+    
+    log_data = f"{action}-{admin_email}-{target}-{prev_hash}-{now}"
+    current_hash = hashlib.sha256(log_data.encode()).hexdigest()
+    
+    new_log = models.AuditLog(
+        action=action,
+        performed_by=admin_email,
+        target_user=target,
+        log_hash=current_hash,
+        previous_hash=prev_hash,
+        timestamp=now # Explicitly set the aware timestamp
+    )
+    db.add(new_log)
 
 # Create all database tables
 models.Base.metadata.create_all(bind=engine)
@@ -99,7 +121,7 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/send-otp", response_model=schemas.OTPResponse)
-@limiter.limit("3/15minutes")  # Rate limit: 3 requests per 15 minutes per IP
+@limiter.limit("100/15minutes")  
 def send_otp(request: Request, otp_request: schemas.OTPRequest, db: Session = Depends(get_db)):
     """
     SEND OTP FOR EMAIL VERIFICATION
@@ -132,7 +154,7 @@ def send_otp(request: Request, otp_request: schemas.OTPRequest, db: Session = De
     new_otp = models.OTP(
         user_id=user.id,
         code=otp_code,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(new_otp)
     db.commit()
@@ -288,47 +310,59 @@ def download_resume(
 ):
     """
     SECURE RESUME DOWNLOAD
-    - Decrypts resume using stored key
-    - Access control: Only owner can download (for now)
-    - Verifies file integrity during decryption
+    - Access control: Owner, Admins, or Recruiters with a valid application.
     """
     from fastapi.responses import Response
     
-    # Get user
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
-    
-    # Get resume metadata
     resume = db.query(models.Resume).filter(models.Resume.id == resume_id).first()
+    
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
     
-    # Access Control: Only owner can download
-    if resume.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Access denied: You can only download your own resume")
+    # --- SECURITY CHECK LOGIC ---
+    allowed = False
     
-    # Read encrypted file
+    # 1. Is the user the owner?
+    if resume.user_id == user.id:
+        allowed = True
+    
+    # 2. Is the user an Admin?
+    elif user.role == "admin":
+        allowed = True
+        
+    # 3. Is the user a Recruiter who received an application with this resume?
+    elif user.role == "recruiter":
+        # We must explicitly define the JOIN condition: models.Job.id == models.Application.job_id
+        application = db.query(models.Application).join(
+            models.Job, models.Job.id == models.Application.job_id
+        ).filter(
+            models.Application.resume_id == resume_id,
+            models.Job.recruiter_id == user.id
+        ).first()
+        if application:
+            allowed = True
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Access denied: You are not authorized to view this resume")
+    # --- END SECURITY CHECK ---
+
+    # Read and Decrypt (Same logic as before)
     file_path = os.path.join("uploads", resume.encrypted_filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
-    
     with open(file_path, "rb") as f:
         encrypted_data = f.read()
     
-    # Decrypt the file
     try:
         encryption_key = encryption.string_to_key(resume.encryption_key)
         nonce = base64.b64decode(resume.nonce.encode('utf-8'))
         decrypted_data = encryption.decrypt_file(encrypted_data, encryption_key, nonce)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Decryption failed. File may be corrupted.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Decryption failed.")
     
-    # Return decrypted file
     return Response(
         content=decrypted_data,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename={resume.original_filename}"
-        }
+        headers={"Content-Disposition": f"attachment; filename={resume.original_filename}"}
     )
 
 @app.get("/my-resumes", response_model=list[schemas.ResumeResponse])
@@ -411,27 +445,19 @@ def suspend_user(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
-    """
-    ADMIN: SUSPEND USER ACCOUNT
-    - Only accessible by Platform Admins
-    - Sets is_active to False
-    - Suspended users cannot login or perform actions
-    """
     user = db.query(models.User).filter(models.User.id == user_id).first()
-    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
     if user.role == "admin":
         raise HTTPException(status_code=403, detail="Cannot suspend other admins")
     
     user.is_active = False
-    db.commit()
     
-    return {
-        "message": f"User {user.email} has been suspended",
-        "user_id": user_id
-    }
+    # NEW: Secure Logging
+    create_audit_log(db, "USER_SUSPENDED", admin_email, user.email)
+    
+    db.commit()
+    return {"message": f"User {user.email} has been suspended", "user_id": user_id}
 
 @app.post("/admin/activate/{user_id}", response_model=schemas.AdminAction)
 def activate_user(
@@ -439,24 +465,17 @@ def activate_user(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
-    """
-    ADMIN: ACTIVATE SUSPENDED USER
-    - Only accessible by Platform Admins
-    - Sets is_active to True
-    - Re-enables suspended accounts
-    """
     user = db.query(models.User).filter(models.User.id == user_id).first()
-    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     user.is_active = True
-    db.commit()
     
-    return {
-        "message": f"User {user.email} has been activated",
-        "user_id": user_id
-    }
+    # NEW: Secure Logging
+    create_audit_log(db, "USER_ACTIVATED", admin_email, user.email)
+    
+    db.commit()
+    return {"message": f"User {user.email} has been activated", "user_id": user_id}
 
 @app.delete("/admin/delete/{user_id}", response_model=schemas.AdminAction)
 def delete_user(
@@ -464,25 +483,243 @@ def delete_user(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
-    """
-    ADMIN: DELETE USER ACCOUNT
-    - Only accessible by Platform Admins
-    - Permanently removes user and associated data
-    - Cannot delete other admins
-    """
     user = db.query(models.User).filter(models.User.id == user_id).first()
-    
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
     if user.role == "admin":
         raise HTTPException(status_code=403, detail="Cannot delete other admins")
     
-    email = user.email
+    target_email = user.email
     db.delete(user)
-    db.commit()
     
-    return {
-        "message": f"User {email} has been permanently deleted",
-        "user_id": user_id
-    }
+    # NEW: Secure Logging
+    create_audit_log(db, "USER_DELETED", admin_email, target_email)
+    
+    db.commit()
+    return {"message": f"User {target_email} has been permanently deleted", "user_id": user_id}
+
+# NEW: Endpoint to let the Admin Panel view the logs
+@app.get("/admin/audit-logs", response_model=list[schemas.AuditLogResponse])
+def get_audit_logs(db: Session = Depends(get_db), admin_email: str = Depends(auth.require_admin)):
+    return db.query(models.AuditLog).order_by(models.AuditLog.timestamp.desc()).all()
+
+# --- COMPANY ENDPOINTS ---
+
+@app.post("/companies", response_model=schemas.CompanyResponse)
+def create_company(
+    company: schemas.CompanyCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    RECRUITER ONLY: Create a Company Page.
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # RBAC: Only recruiters can create companies
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can create company pages")
+        
+    new_company = models.Company(
+        recruiter_id=user.id,
+        name=company.name,
+        description=company.description,
+        location=company.location,
+        website=company.website
+    )
+    db.add(new_company)
+    db.commit()
+    db.refresh(new_company)
+    return new_company
+
+@app.get("/companies", response_model=list[schemas.CompanyResponse])
+def list_companies(db: Session = Depends(get_db)):
+    """
+    PUBLIC: List all companies.
+    """
+    return db.query(models.Company).all()
+
+# --- JOB ENDPOINTS ---
+
+@app.post("/jobs", response_model=schemas.JobResponse)
+def post_job(
+    job: schemas.JobCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: Post a new job."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can post jobs")
+    
+    new_job = models.Job(
+        recruiter_id=user.id,
+        company_id=job.company_id,
+        title=job.title,
+        description=job.description,
+        location=job.location,
+        employment_type=job.employment_type,
+        skills_required=job.skills_required,
+        salary_range=job.salary_range,
+        deadline=job.deadline
+    )
+    db.add(new_job)
+    db.commit()
+    db.refresh(new_job)
+    return new_job
+
+@app.get("/jobs", response_model=list[schemas.JobResponse])
+def list_jobs(db: Session = Depends(get_db)):
+    """PUBLIC: This is the endpoint the Job Board calls to see all jobs."""
+    return db.query(models.Job).filter(models.Job.is_active == True).all()
+
+@app.get("/my-jobs", response_model=list[schemas.JobResponse])
+def list_my_jobs(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: List jobs posted by the logged-in recruiter."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    return db.query(models.Job).filter(models.Job.recruiter_id == user.id).all()
+
+# --- APPLICATION ENDPOINTS ---
+
+@app.post("/applications", response_model=schemas.ApplicationResponse)
+def apply_to_job(
+    app_data: schemas.ApplicationCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """JOB SEEKER ONLY: Apply to a job using an encrypted resume."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "job_seeker":
+        raise HTTPException(status_code=403, detail="Only job seekers can apply for jobs")
+    
+    # Verify the resume belongs to the user
+    resume = db.query(models.Resume).filter(models.Resume.id == app_data.resume_id, models.Resume.user_id == user.id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found or access denied")
+
+    new_app = models.Application(
+        job_id=app_data.job_id,
+        applicant_id=user.id,
+        resume_id=app_data.resume_id,
+        cover_letter=app_data.cover_letter
+    )
+    db.add(new_app)
+    db.commit()
+    db.refresh(new_app)
+    return new_app
+
+@app.get("/applications/my", response_model=list[dict])
+def list_my_applications(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """JOB SEEKER ONLY: View applications with Job Title and Recruiter ID."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    results = db.query(
+        models.Application, 
+        models.Job.title.label("job_title"),
+        models.Job.recruiter_id.label("recruiter_id") 
+    ).join(models.Job, models.Job.id == models.Application.job_id)\
+     .filter(models.Application.applicant_id == user.id).all()
+
+    output = []
+    for app_obj, title, r_id in results:
+        output.append({
+            "id": app_obj.id, "job_id": app_obj.job_id, "applicant_id": app_obj.applicant_id,
+            "resume_id": app_obj.resume_id, "cover_letter": app_obj.cover_letter,
+            "status": app_obj.status, "applied_at": app_obj.applied_at,
+            "job_title": title, "recruiter_id": r_id 
+        })
+    return output
+
+@app.get("/applications/recruiter", response_model=list[schemas.ApplicationDetail])
+def list_recruiter_applications(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: View all applicants for your jobs."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Query: Get applications for jobs owned by this recruiter
+    results = db.query(
+        models.Application, 
+        models.User.full_name.label("applicant_name"),
+        models.Job.title.label("job_title")
+    ).join(models.Job, models.Job.id == models.Application.job_id)\
+     .join(models.User, models.User.id == models.Application.applicant_id)\
+     .filter(models.Job.recruiter_id == user.id).all()
+    
+    # Manually build the list to ensure Pydantic accepts it
+    output = []
+    for app_obj, name, title in results:
+        output.append({
+            "id": app_obj.id,
+            "job_id": app_obj.job_id,
+            "applicant_id": app_obj.applicant_id,
+            "resume_id": app_obj.resume_id,
+            "cover_letter": app_obj.cover_letter,
+            "status": app_obj.status,
+            "applied_at": app_obj.applied_at,
+            "applicant_name": name,
+            "job_title": title
+        })
+    return output
+
+# --- MESSAGING ENDPOINTS ---
+
+@app.post("/users/public-key")
+def update_public_key(
+    data: schemas.PublicKeyUpdate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Save the user's generated public key to the database."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    user.public_key = data.public_key
+    db.commit()
+    return {"message": "Public key updated"}
+
+@app.get("/users/{user_id}/public-key")
+def get_user_public_key(user_id: int, db: Session = Depends(get_db)):
+    """Fetch a recipient's public key for encryption."""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user or not user.public_key:
+        raise HTTPException(status_code=404, detail="Public key not found")
+    return {"public_key": user.public_key}
+
+@app.post("/messages", response_model=schemas.MessageResponse)
+def send_message(
+    msg: schemas.MessageCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Store an E2EE encrypted message (ciphertext only)."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    new_msg = models.Message(
+        sender_id=user.id,
+        receiver_id=msg.receiver_id,
+        encrypted_content=msg.encrypted_content
+    )
+    db.add(new_msg)
+    db.commit()
+    db.refresh(new_msg)
+    return new_msg
+
+@app.get("/messages/{other_user_id}", response_model=list[schemas.MessageResponse])
+def get_messages(
+    other_user_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Fetch encrypted chat history between two users."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    return db.query(models.Message).filter(
+        ((models.Message.sender_id == user.id) & (models.Message.receiver_id == other_user_id)) |
+        ((models.Message.sender_id == other_user_id) & (models.Message.receiver_id == user.id))
+    ).order_by(models.Message.timestamp.asc()).all()

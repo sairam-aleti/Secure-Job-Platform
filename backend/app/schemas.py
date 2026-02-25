@@ -118,3 +118,105 @@ class UserListItem(BaseModel):
 class AdminAction(BaseModel):
     message: str
     user_id: int
+
+# --- COMPANY SCHEMAS ---
+class CompanyCreate(BaseModel):
+    name: str
+    description: str
+    location: str
+    website: Optional[str] = None
+
+class CompanyResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    location: str
+    website: Optional[str]
+    recruiter_id: int
+    
+    class Config:
+        from_attributes = True
+
+# --- JOB SCHEMAS ---
+class JobCreate(BaseModel):
+    company_id: int
+    title: str
+    description: str
+    location: str
+    employment_type: str  # "Full-time", "Internship"
+    skills_required: str  # '["Python"]'
+    salary_range: Optional[str] = None
+    deadline: Optional[datetime] = None
+
+class JobResponse(BaseModel):
+    id: int
+    company_id: int
+    title: str
+    description: str
+    location: str
+    employment_type: str
+    skills_required: str
+    salary_range: Optional[str]
+    posted_at: datetime
+    is_active: bool
+    
+    class Config:
+        from_attributes = True
+
+# --- APPLICATION SCHEMAS ---
+class ApplicationCreate(BaseModel):
+    job_id: int
+    resume_id: int
+    cover_letter: Optional[str] = None
+
+class ApplicationResponse(BaseModel):
+    id: int
+    job_id: int
+    applicant_id: int
+    resume_id: int
+    cover_letter: Optional[str]
+    status: str
+    applied_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Extended response for Recruiters to see Applicant details
+class ApplicationDetail(ApplicationResponse):
+    applicant_name: str
+    job_title: str
+
+# --- MESSAGING SCHEMAS ---
+
+class PublicKeyUpdate(BaseModel):
+    public_key: str
+
+class MessageCreate(BaseModel):
+    receiver_id: int
+    encrypted_content: str
+
+class MessageResponse(BaseModel):
+    id: int
+    sender_id: int
+    receiver_id: int
+    encrypted_content: str
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+# Extended response for showing names in the dashboard
+class ApplicationDetail(ApplicationResponse):
+    applicant_name: str
+    job_title: str
+
+class AuditLogResponse(BaseModel):
+    id: int
+    action: str
+    performed_by: str
+    target_user: Optional[str]
+    timestamp: datetime
+    log_hash: str
+    
+    class Config:
+        from_attributes = True

@@ -6,6 +6,11 @@ import VerifyOTP from './pages/VerifyOTP';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import CreateCompany from './pages/CreateCompany';
+import PostJob from './pages/PostJob';
+import JobBoard from './pages/JobBoard';
+import Apply from './pages/Apply';
+import Chat from './pages/Chat';
 import './App.css';
 
 function App() {
@@ -19,6 +24,11 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/create-company" element={<CreateCompany />} />
+        <Route path="/post-job" element={<PostJob />} />
+        <Route path="/jobs" element={<JobBoard />} />
+        <Route path="/apply/:jobId" element={<Apply />} />
+        <Route path="/chat/:receiverId" element={<Chat />} />
       </Routes>
     </Router>
   );

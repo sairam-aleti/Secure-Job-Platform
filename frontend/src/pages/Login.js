@@ -20,28 +20,35 @@ function Login() {
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setError('');
-  setLoading(true);
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
-  try {
-    const response = await authAPI.login(formData);
-    console.log('Login response:', response.data); // DEBUG
-    localStorage.setItem('access_token', response.data.access_token);
-    localStorage.setItem('user_email', formData.email);
-    console.log('Token saved:', localStorage.getItem('access_token')); // DEBUG
-    navigate('/dashboard');
-  } catch (err) {
-    console.error('Login error:', err); // DEBUG
-    setError(err.response?.data?.detail || 'Login failed');
-  } finally {
-    setLoading(false);
-  }
-};
+    // SECURITY: Clear any old session data before starting a new one
+    sessionStorage.clear();
+
+    try {
+      const response = await authAPI.login(formData);
+      
+      // Save Authentication details
+      localStorage.setItem('access_token', response.data.access_token);
+      localStorage.setItem('user_email', formData.email);
+      
+      // SECURITY: Save password in SESSION storage (clears when tab closes)
+      // This is needed to unlock the Private Key for E2EE messaging
+      sessionStorage.setItem('user_pwd', formData.password);
+      
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err.response?.data?.detail || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <>
-      {/* ---- Navbar ---- */}
       <nav className="auth-navbar">
         <a href="/" className="auth-navbar-brand">FortKnox</a>
         <div className="auth-navbar-center">
@@ -55,7 +62,6 @@ function Login() {
         </div>
       </nav>
 
-      {/* ---- Hero ---- */}
       <section className="auth-hero">
         <div className="auth-hero-text">
           <h1>Welcome back to FortKnox</h1>
@@ -66,7 +72,6 @@ function Login() {
         </div>
       </section>
 
-      {/* ---- Form Section ---- */}
       <section className="auth-form-section">
         <div className="auth-card">
           <h2>Sign In</h2>
@@ -109,7 +114,6 @@ function Login() {
         </div>
       </section>
 
-      {/* ---- Security Features Bar ---- */}
       <section className="auth-features-bar">
         <div className="auth-feature-item"><span className="auth-feature-icon">🔐</span> AES-256 Encryption</div>
         <div className="auth-feature-item"><span className="auth-feature-icon">🛡️</span> Argon2 Hashing</div>
