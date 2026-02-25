@@ -5,6 +5,7 @@ from app.database import engine, get_db
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
 import os
 import base64
@@ -14,6 +15,18 @@ models.Base.metadata.create_all(bind=engine)
 
 # Initialize FastAPI
 app = FastAPI(title="Secure Job Platform", version="2.0")
+
+# CORS Configuration - Allow frontend to connect
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",   # HTTP (for development)
+        "https://localhost:3000"   # HTTPS (secure)
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Rate Limiting Configuration
 limiter = Limiter(key_func=get_remote_address)
@@ -317,6 +330,23 @@ def download_resume(
             "Content-Disposition": f"attachment; filename={resume.original_filename}"
         }
     )
+
+@app.get("/my-resumes", response_model=list[schemas.ResumeResponse])
+def list_my_resumes(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    LIST USER'S RESUMES
+    - Returns all resumes uploaded by the current user
+    - Includes file metadata (name, size, upload date)
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    resumes = db.query(models.Resume).filter(models.Resume.user_id == user.id).all()
+    return resumes
 
 @app.get("/profile", response_model=schemas.ProfileResponse)
 def get_profile(

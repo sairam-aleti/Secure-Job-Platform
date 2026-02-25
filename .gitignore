@@ -39,3 +39,22 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Frontend (React/Node.js)
+node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# Production build files
+build/
+dist/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.orig
+.DS_Store

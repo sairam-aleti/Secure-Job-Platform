@@ -83,6 +83,8 @@ class ProfileResponse(BaseModel):
     email: str
     full_name: str
     role: str
+    is_verified: bool    
+    is_active: bool 
     headline: Optional[str]
     location: Optional[str]
     bio: Optional[str]
