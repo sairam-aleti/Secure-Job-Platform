@@ -51,45 +51,81 @@ function VerifyOTP() {
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <h2>Verify Your Email</h2>
-        <p style={{ textAlign: 'center', color: '#666', marginBottom: '20px' }}>
-          Enter the OTP sent to {email}
-        </p>
+    <>
+      {/* ---- Navbar ---- */}
+      <nav className="auth-navbar">
+        <a href="/" className="auth-navbar-brand">FortKnox</a>
+        <div className="auth-navbar-center">
+          <a href="/">Home</a>
+          <a href="/login">Find Jobs</a>
+          <a href="/login">About Us</a>
+        </div>
+        <div className="auth-navbar-right">
+          <a href="/login" className="btn-nav-login">Login</a>
+          <a href="/register" className="btn-nav-register">Register</a>
+        </div>
+      </nav>
 
-        {devOtp && (
-          <div className="success-message">
-            <strong>Dev OTP:</strong> {devOtp}
-          </div>
-        )}
+      {/* ---- Hero ---- */}
+      <section className="auth-hero">
+        <div className="auth-hero-text">
+          <h1>Almost there</h1>
+          <p>We've sent a verification code to your email. This step confirms your identity and keeps your account secure.</p>
+        </div>
+        <div className="auth-hero-visual">
+          <div className="hero-placeholder">✉️</div>
+        </div>
+      </section>
 
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>OTP Code</label>
-            <input
-              type="text"
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value)}
-              required
-              placeholder="Enter 6-digit code"
-              maxLength="6"
-            />
-          </div>
+      {/* ---- Form Section ---- */}
+      <section className="auth-form-section">
+        <div className="auth-card">
+          <h2>Verify your email</h2>
+          <p className="otp-info">
+            Enter the 6-digit code sent to <span className="otp-email">{email}</span>
+          </p>
 
-          {error && <div className="error-message">{error}</div>}
-          {success && <div className="success-message">{success}</div>}
+          {devOtp && (
+            <div className="success-message">
+              <strong>Dev OTP:</strong> {devOtp}
+            </div>
+          )}
 
-          <button type="submit" disabled={loading}>
-            {loading ? 'Verifying...' : 'Verify OTP'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>Verification Code</label>
+              <input
+                type="text"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                required
+                placeholder="Enter 6-digit code"
+                maxLength="6"
+              />
+            </div>
 
-        <p className="auth-link">
-          <a href="#" onClick={() => sendOTP(email)}>Resend OTP</a>
-        </p>
-      </div>
-    </div>
+            {error && <div className="error-message">{error}</div>}
+            {success && <div className="success-message">{success}</div>}
+
+            <button type="submit" disabled={loading}>
+              {loading ? 'Verifying...' : 'Verify Code'}
+            </button>
+          </form>
+
+          <p className="auth-link">
+            <a href="#" onClick={() => sendOTP(email)}>Resend Code</a>
+          </p>
+        </div>
+      </section>
+
+      {/* ---- Security Features Bar ---- */}
+      <section className="auth-features-bar">
+        <div className="auth-feature-item"><span className="auth-feature-icon">⏱️</span> Code expires in 2 min</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">🔒</span> 5 attempts max</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">🛡️</span> Rate-limited</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">✉️</span> Email verified</div>
+      </section>
+    </>
   );
 }
 

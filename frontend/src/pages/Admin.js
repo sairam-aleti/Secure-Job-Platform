@@ -99,23 +99,37 @@ function Admin() {
 
   if (loading) {
     return (
-      <div className="dashboard-container">
-        <p>Loading...</p>
+      <div className="app-layout">
+        <nav className="app-nav">
+          <a href="/dashboard" className="nav-brand">FortKnox</a>
+          <div className="nav-center">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/admin">Admin</a>
+          </div>
+          <div className="nav-actions">
+            <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
+          </div>
+        </nav>
+        <main className="app-content">
+          <p style={{ textAlign: 'center', color: '#6b7280', marginTop: '80px', fontSize: '15px' }}>Loading admin panel...</p>
+        </main>
       </div>
     );
   }
 
   if (currentUser?.role !== 'admin') {
     return (
-      <div className="dashboard-container">
-        <nav className="dashboard-nav">
-          <h1>Secure Job Platform</h1>
-          <div className="nav-links">
+      <div className="app-layout">
+        <nav className="app-nav">
+          <a href="/dashboard" className="nav-brand">FortKnox</a>
+          <div className="nav-center">
             <a href="/dashboard">Dashboard</a>
-            <button onClick={handleLogout}>Logout</button>
+          </div>
+          <div className="nav-actions">
+            <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
           </div>
         </nav>
-        <main className="dashboard-main">
+        <main className="app-content">
           <div className="error-card">
             <h2>Access Denied</h2>
             <p>You do not have permission to access the Admin Panel.</p>
@@ -128,20 +142,40 @@ function Admin() {
   }
 
   return (
-    <div className="dashboard-container">
-      <nav className="dashboard-nav">
-        <h1>Admin Panel</h1>
-        <div className="nav-links">
+    <div className="app-layout">
+      <nav className="app-nav">
+        <a href="/dashboard" className="nav-brand">FortKnox</a>
+        <div className="nav-center">
           <a href="/dashboard">Dashboard</a>
-          <button onClick={handleLogout}>Logout</button>
+          <a href="/admin">Admin</a>
+        </div>
+        <div className="nav-actions">
+          <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
         </div>
       </nav>
 
-      <main className="dashboard-main">
-        <div className="welcome-card">
-          <h2>Admin Dashboard</h2>
-          <p>Logged in as: {currentUser?.email}</p>
-          <p>Total Users: {users.length}</p>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <h2>Admin Panel</h2>
+          <p>Manage users and platform settings</p>
+        </div>
+      </div>
+
+      <main className="app-content">
+
+        <div className="stats-row">
+          <div className="stat-item">
+            <div className="stat-label">Total Users</div>
+            <div className="stat-value">{users.length}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-label">Active</div>
+            <div className="stat-value" style={{ color: '#059669' }}>{users.filter(u => u.is_active).length}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-label">Suspended</div>
+            <div className="stat-value" style={{ color: '#dc2626' }}>{users.filter(u => !u.is_active).length}</div>
+          </div>
         </div>
 
         {actionMessage && (
@@ -150,71 +184,78 @@ function Admin() {
         
         {error && <div className="error-message">{error}</div>}
 
-        <div className="admin-card">
-          <h3>User Management</h3>
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Email</th>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Verified</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td>{user.id}</td>
-                  <td>{user.email}</td>
-                  <td>{user.full_name}</td>
-                  <td>
-                    <span className={`role-badge role-${user.role}`}>
-                      {user.role}
-                    </span>
-                  </td>
-                  <td>{user.is_verified ? 'Yes' : 'No'}</td>
-                  <td>
-                    <span className={`status-badge ${user.is_active ? 'active' : 'suspended'}`}>
-                      {user.is_active ? 'Active' : 'Suspended'}
-                    </span>
-                  </td>
-                  <td className="action-buttons">
-                    {user.role !== 'admin' && (
-                      <>
-                        {user.is_active ? (
-                          <button 
-                            className="btn-suspend"
-                            onClick={() => handleSuspend(user.id, user.email)}
-                          >
-                            Suspend
-                          </button>
-                        ) : (
-                          <button 
-                            className="btn-activate"
-                            onClick={() => handleActivate(user.id, user.email)}
-                          >
-                            Activate
-                          </button>
-                        )}
-                        <button 
-                          className="btn-delete"
-                          onClick={() => handleDelete(user.id, user.email)}
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                    {user.role === 'admin' && (
-                      <span className="no-action">Protected</span>
-                    )}
-                  </td>
+        <div className="card">
+          <div className="card-header">
+            <h3>User Management</h3>
+            <span className="card-badge" style={{ background: '#eef2ff', color: '#3461c7' }}>
+              {users.length} user{users.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="admin-table-wrapper">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Email</th>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Verified</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td>{user.id}</td>
+                    <td>{user.email}</td>
+                    <td>{user.full_name}</td>
+                    <td>
+                      <span className={`role-badge role-${user.role}`}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td>{user.is_verified ? '✓ Yes' : 'No'}</td>
+                    <td>
+                      <span className={`status-badge ${user.is_active ? 'active' : 'suspended'}`}>
+                        {user.is_active ? 'Active' : 'Suspended'}
+                      </span>
+                    </td>
+                    <td className="action-buttons">
+                      {user.role !== 'admin' && (
+                        <>
+                          {user.is_active ? (
+                            <button 
+                              className="btn-suspend"
+                              onClick={() => handleSuspend(user.id, user.email)}
+                            >
+                              Suspend
+                            </button>
+                          ) : (
+                            <button 
+                              className="btn-activate"
+                              onClick={() => handleActivate(user.id, user.email)}
+                            >
+                              Activate
+                            </button>
+                          )}
+                          <button 
+                            className="btn-delete"
+                            onClick={() => handleDelete(user.id, user.email)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                      {user.role === 'admin' && (
+                        <span className="no-action">Protected</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
     </div>

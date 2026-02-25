@@ -95,83 +95,153 @@ function Dashboard() {
 
   if (loading) {
     return (
-      <div className="dashboard-container">
-        <p>Loading...</p>
+      <div className="app-layout">
+        <nav className="app-nav">
+          <a href="/dashboard" className="nav-brand">FortKnox</a>
+          <div className="nav-center">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/profile">Profile</a>
+          </div>
+          <div className="nav-actions">
+            <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
+          </div>
+        </nav>
+        <main className="app-content">
+          <p style={{ textAlign: 'center', color: '#6b7280', marginTop: '80px', fontSize: '15px' }}>Loading your dashboard...</p>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="dashboard-container">
-      <nav className="dashboard-nav">
-        <h1>Secure Job Platform</h1>
-        <div className="nav-links">
-          <a href="/profile">Edit Profile</a>
-          {profile?.role === 'admin' && <a href="/admin">Admin Panel</a>}
-          <button onClick={handleLogout}>Logout</button>
+    <div className="app-layout">
+      <nav className="app-nav">
+        <a href="/dashboard" className="nav-brand">FortKnox</a>
+        <div className="nav-center">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/profile">Profile</a>
+          {profile?.role === 'admin' && <a href="/admin">Admin</a>}
+        </div>
+        <div className="nav-actions">
+          <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
         </div>
       </nav>
 
-      <main className="dashboard-main">
-        <div className="welcome-card">
-          <h2>Welcome, {profile?.full_name}!</h2>
-          <p>Email: {profile?.email}</p>
-          <p>Role: {profile?.role}</p>
-          <p>Verified: {profile?.is_verified ? 'Yes' : 'No'}</p>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <h2>Welcome back, {profile?.full_name}</h2>
+          <p>Here's your dashboard overview</p>
+        </div>
+      </div>
+
+      <main className="app-content">
+        <div className="stats-row">
+          <div className="stat-item">
+            <div className="stat-label">Email</div>
+            <div className="stat-value" style={{ fontSize: '15px', wordBreak: 'break-all' }}>{profile?.email}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-label">Role</div>
+            <div className="stat-value" style={{ fontSize: '15px', textTransform: 'capitalize' }}>{profile?.role?.replace('_', ' ')}</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-label">Status</div>
+            <div className="stat-value" style={{ fontSize: '15px', color: profile?.is_verified ? '#059669' : '#d97706' }}>
+              {profile?.is_verified ? '✓ Verified' : '⏳ Pending'}
+            </div>
+          </div>
         </div>
 
-        <div className="profile-card">
-          <h3>Your Profile</h3>
-          <p><strong>Headline:</strong> {profile?.headline || 'Not set'}</p>
-          <p><strong>Location:</strong> {profile?.location || 'Not set'}</p>
-          <p><strong>Bio:</strong> {profile?.bio || 'Not set'}</p>
-          <p><strong>Skills:</strong> {profile?.skills || 'Not set'}</p>
+        <div className="card">
+          <div className="card-header">
+            <h3>Profile Summary</h3>
+          </div>
+          <div className="profile-info">
+            <div className="profile-field">
+              <span className="profile-field-label">Headline</span>
+              <span className={`profile-field-value ${!profile?.headline ? 'empty' : ''}`}>
+                {profile?.headline || 'Not set'}
+              </span>
+            </div>
+            <div className="profile-field">
+              <span className="profile-field-label">Location</span>
+              <span className={`profile-field-value ${!profile?.location ? 'empty' : ''}`}>
+                {profile?.location || 'Not set'}
+              </span>
+            </div>
+            <div className="profile-field">
+              <span className="profile-field-label">Bio</span>
+              <span className={`profile-field-value ${!profile?.bio ? 'empty' : ''}`}>
+                {profile?.bio || 'Not set'}
+              </span>
+            </div>
+            <div className="profile-field">
+              <span className="profile-field-label">Skills</span>
+              <span className={`profile-field-value ${!profile?.skills ? 'empty' : ''}`}>
+                {profile?.skills || 'Not set'}
+              </span>
+            </div>
+          </div>
         </div>
 
         {profile?.role !== 'admin' && (
-  <>
-    <div className="upload-card">
-      <h3>Upload Resume (Encrypted)</h3>
-      <p>Your resume will be encrypted using AES-256-GCM</p>
-      <input
-        type="file"
-        accept=".pdf,.docx"
-        onChange={handleFileChange}
-      />
-      <button onClick={handleUpload}>Upload Resume</button>
-      {uploadStatus && <p className="upload-status">{uploadStatus}</p>}
-    </div>
-
-    <div className="resume-card">
-      <h3>Your Resumes</h3>
-      {resumes.length === 0 ? (
-        <p>No resumes uploaded yet.</p>
-      ) : (
-        <ul className="resume-list">
-          {resumes.map((resume) => (
-            <li key={resume.id} className="resume-item">
-              <div className="resume-info">
-                <span className="resume-name">{resume.original_filename}</span>
-                <span className="resume-size">
-                  {(resume.file_size / 1024).toFixed(1)} KB
-                </span>
-                <span className="resume-date">
-                  {new Date(resume.uploaded_at).toLocaleDateString()}
-                </span>
+          <>
+            <div className="card">
+              <div className="card-header">
+                <h3>Upload Resume</h3>
+                <span className="card-badge" style={{ background: '#eef2ff', color: '#3461c7' }}>AES-256-GCM Encrypted</span>
               </div>
-              <button 
-                className="download-btn"
-                onClick={() => handleDownload(resume.id, resume.original_filename)}
-              >
-                Download (Decrypt)
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  </>
-)}
+              <div className="upload-area">
+                <p>Select your resume to upload securely</p>
+                <p className="upload-hint">Accepted formats: PDF, DOCX — Max 10MB</p>
+                <input
+                  type="file"
+                  accept=".pdf,.docx"
+                  onChange={handleFileChange}
+                />
+              </div>
+              <button className="btn-upload" onClick={handleUpload}>Upload & Encrypt</button>
+              {uploadStatus && <p className="upload-status">{uploadStatus}</p>}
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <h3>Your Resumes</h3>
+                <span className="card-badge" style={{ background: '#ecfdf5', color: '#065f46' }}>{resumes.length} file{resumes.length !== 1 ? 's' : ''}</span>
+              </div>
+              {resumes.length === 0 ? (
+                <p style={{ color: '#9ca3af', textAlign: 'center', padding: '24px 0' }}>No resumes uploaded yet.</p>
+              ) : (
+                <ul className="resume-list">
+                  {resumes.map((resume) => (
+                    <li key={resume.id} className="resume-item">
+                      <div className="resume-info">
+                        <div className="resume-icon">📄</div>
+                        <div className="resume-details">
+                          <span className="resume-name">{resume.original_filename}</span>
+                          <div className="resume-meta">
+                            <span className="resume-size">
+                              {(resume.file_size / 1024).toFixed(1)} KB
+                            </span>
+                            <span className="resume-date">
+                              {new Date(resume.uploaded_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        className="download-btn"
+                        onClick={() => handleDownload(resume.id, resume.original_filename)}
+                      >
+                        Download
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        )}
 
         {error && <div className="error-message">{error}</div>}
       </main>

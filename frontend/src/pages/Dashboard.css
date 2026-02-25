@@ -1,190 +1,328 @@
-.dashboard-container {
+/* ========================================
+   APP LAYOUT — Dashboard, Profile, Admin
+   FortKnox — AlwaysApply inspired design
+   ======================================== */
+
+/* ---- Page Shell ---- */
+.app-layout {
   min-height: 100vh;
-  background: #f5f5f5;
+  background: #ffffff;
 }
 
-.dashboard-nav {
-  background: #667eea;
-  color: white;
-  padding: 20px 40px;
+/* ---- Navigation Bar (matches auth-navbar style) ---- */
+.app-nav {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 40px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  height: 60px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
-.dashboard-nav h1 {
-  margin: 0;
-  font-size: 24px;
+.nav-brand {
+  font-size: 22px;
+  font-weight: 700;
+  color: #3461c7;
+  letter-spacing: -0.4px;
+  cursor: pointer;
+  text-decoration: none;
 }
 
-.nav-links {
+.nav-center {
   display: flex;
-  gap: 20px;
+  align-items: center;
+  gap: 32px;
+}
+
+.nav-center a {
+  font-size: 15px;
+  color: #4b5563;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.nav-center a:hover {
+  color: #1a1a2e;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-link {
+  color: #4b5563;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.nav-link:hover {
+  color: #1a1a2e;
+}
+
+.btn-nav-outline {
+  padding: 8px 22px;
+  border: 2px solid #3461c7;
+  border-radius: 6px;
+  background: transparent;
+  color: #3461c7;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  display: inline-flex;
   align-items: center;
 }
 
-.nav-links a {
-  color: white;
-  text-decoration: none;
+.btn-nav-outline:hover {
+  background: #3461c7;
+  color: #ffffff;
+}
+
+.btn-logout {
+  padding: 8px 22px;
+  border: 2px solid #3461c7;
+  border-radius: 6px;
+  background: transparent;
+  color: #3461c7;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.btn-logout:hover {
+  background: #3461c7;
+  color: #ffffff;
+}
+
+/* ---- Page Hero Banner (light blue) ---- */
+.page-hero {
+  background: linear-gradient(135deg, #dce8fc 0%, #e8eefc 60%, #f4f7fe 100%);
+  padding: 48px 40px;
+}
+
+.page-hero-inner {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.page-hero h2 {
+  font-size: 30px;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.4px;
+}
+
+.page-hero p {
+  font-size: 16px;
+  color: #4b5563;
+  margin: 0;
+}
+
+/* ---- Main Content ---- */
+.app-content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 36px 40px 64px;
+}
+
+/* ---- Section Title (Playfair italic, like "Featured Jobs") ---- */
+.section-title {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.section-title h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 600;
+  font-style: italic;
+  color: #1a1a2e;
+  margin: 0;
+}
+
+.section-subtitle {
+  text-align: center;
+  font-size: 15px;
+  color: #3461c7;
+  margin: 0 0 32px 0;
+}
+
+/* ---- Stats Row ---- */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-item {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 22px 24px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+/* ---- Card ---- */
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 28px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.card-header h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin: 0;
+}
+
+.card-badge {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+/* ---- Profile Info Grid ---- */
+.profile-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 36px;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.profile-field-label {
+  font-size: 13px;
+  color: #6b7280;
   font-weight: 500;
 }
 
-.nav-links a:hover {
-  text-decoration: underline;
+.profile-field-value {
+  font-size: 15px;
+  color: #1a1a2e;
+  font-weight: 500;
 }
 
-.nav-links button {
-  background: white;
-  color: #667eea;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-weight: 600;
+.profile-field-value.empty {
+  color: #9ca3af;
+  font-style: italic;
+  font-weight: 400;
 }
 
-.nav-links button:hover {
-  background: #f0f0f0;
+/* ---- Upload Section ---- */
+.upload-area {
+  border: 2px dashed #c7d6f5;
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  margin-bottom: 16px;
+  background: #f9fbfe;
 }
 
-.dashboard-main {
-  max-width: 900px;
-  margin: 40px auto;
-  padding: 0 20px;
+.upload-area:hover {
+  border-color: #3461c7;
+  background: #f0f5ff;
 }
 
-.welcome-card,
-.profile-card,
-.upload-card {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+.upload-area p {
+  margin: 0 0 2px 0;
+  color: #374151;
+  font-size: 15px;
+  font-weight: 500;
 }
 
-.welcome-card h2 {
-  margin-top: 0;
-  color: #333;
+.upload-area .upload-hint {
+  color: #9ca3af;
+  font-size: 13px;
+  font-weight: 400;
 }
 
-.welcome-card p {
-  margin: 10px 0;
-  color: #666;
-}
-
-.profile-card h3,
-.upload-card h3 {
-  margin-top: 0;
-  color: #333;
-  border-bottom: 2px solid #667eea;
-  padding-bottom: 10px;
-}
-
-.upload-card input[type="file"] {
+.upload-area input[type="file"] {
   display: block;
-  margin: 20px 0;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  width: 100%;
-  box-sizing: border-box;
+  margin: 14px auto 0;
+  font-size: 14px;
+  color: #4b5563;
+  font-family: inherit;
 }
 
-.upload-card button {
-  background: #667eea;
-  color: white;
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 28px;
+  background: #3461c7;
+  color: #ffffff;
   border: none;
-  padding: 12px 24px;
-  border-radius: 5px;
-  cursor: pointer;
+  border-radius: 8px;
+  font-size: 14px;
   font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease;
 }
 
-.upload-card button:hover {
-  background: #5568d3;
+.btn-upload:hover {
+  background: #2a4faa;
 }
 
 .upload-status {
-  margin-top: 15px;
-  padding: 10px;
-  background: #e7f3ff;
-  border-radius: 5px;
-  color: #0066cc;
-}
-
-.error-message {
-  background: #fee;
-  color: #c33;
-  padding: 15px;
-  border-radius: 5px;
-  margin-top: 20px;
-}
-
-/* Profile Edit Form Styles */
-.form-row {
-  display: flex;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.form-row .form-group {
-  flex: 1;
-}
-
-.form-row .privacy-select {
-  flex: 0 0 150px;
-}
-
-.form-group textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: #eef2ff;
+  border: 1px solid #c7d6f5;
+  border-radius: 8px;
+  color: #3461c7;
   font-size: 14px;
-  box-sizing: border-box;
-  resize: vertical;
 }
 
-.form-group textarea:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.profile-card form {
-  margin-top: 20px;
-}
-
-.profile-card button[type="submit"] {
-  margin-top: 20px;
-}
-
-.success-message {
-  background: #d4edda;
-  color: #155724;
-  padding: 15px;
-  border-radius: 5px;
-  margin-bottom: 15px;
-  text-align: center;
-}
-
-/* Resume List Styles */
-.resume-card {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
-}
-
-.resume-card h3 {
-  margin-top: 0;
-  color: #333;
-  border-bottom: 2px solid #667eea;
-  padding-bottom: 10px;
-}
-
+/* ---- Resume List ---- */
 .resume-list {
   list-style: none;
   padding: 0;
@@ -195,202 +333,433 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 15px;
-  border: 1px solid #eee;
-  border-radius: 5px;
-  margin-bottom: 10px;
-  background: #f9f9f9;
+  padding: 14px 16px;
+  border: 1px solid #f3f4f6;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  transition: background 0.1s ease;
+}
+
+.resume-item:hover {
+  background: #f9fbfe;
 }
 
 .resume-info {
   display: flex;
-  gap: 20px;
   align-items: center;
+  gap: 14px;
+}
+
+.resume-icon {
+  width: 42px;
+  height: 42px;
+  background: #eef2ff;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.resume-details {
+  display: flex;
+  flex-direction: column;
 }
 
 .resume-name {
   font-weight: 600;
-  color: #333;
-}
-
-.resume-size {
-  color: #666;
+  color: #1a1a2e;
   font-size: 14px;
 }
 
+.resume-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.resume-size,
 .resume-date {
-  color: #999;
-  font-size: 14px;
+  color: #9ca3af;
+  font-size: 13px;
 }
 
 .download-btn {
-  background: #28a745;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 5px;
+  background: #ffffff;
+  color: #3461c7;
+  border: 2px solid #3461c7;
+  padding: 7px 20px;
+  border-radius: 6px;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 13px;
+  font-family: inherit;
+  transition: all 0.15s ease;
 }
 
 .download-btn:hover {
-  background: #218838;
+  background: #3461c7;
+  color: #ffffff;
 }
 
-/* Admin Panel Styles */
-.admin-card {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+/* ---- Profile Edit Form ---- */
+.form-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+.form-row .privacy-select {
+  flex: 0 0 160px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1a1a2e;
+  background: #ffffff;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #3461c7;
+  box-shadow: 0 0 0 3px rgba(52, 97, 199, 0.1);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  color: #9ca3af;
+}
+
+button[type="submit"] {
+  width: 100%;
+  padding: 12px 20px;
+  background: #3461c7;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease;
+  margin-top: 8px;
+}
+
+button[type="submit"]:hover {
+  background: #2a4faa;
+}
+
+button[type="submit"]:disabled {
+  background: #93b4f0;
+  cursor: not-allowed;
+}
+
+/* ---- Feedback Messages ---- */
+.error-message {
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  border: 1px solid #fecaca;
+}
+
+.success-message {
+  background: #f0fdf4;
+  color: #15803d;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  border: 1px solid #bbf7d0;
+  text-align: center;
+}
+
+/* ========================================
+   ADMIN TABLE
+   ======================================== */
+.admin-table-wrapper {
   overflow-x: auto;
-}
-
-.admin-card h3 {
-  margin-top: 0;
-  color: #333;
-  border-bottom: 2px solid #667eea;
-  padding-bottom: 10px;
+  margin-top: 4px;
 }
 
 .admin-table {
   width: 100%;
-  border-collapse: collapse;
-  margin-top: 20px;
-}
-
-.admin-table th,
-.admin-table td {
-  padding: 12px 15px;
-  text-align: left;
-  border-bottom: 1px solid #eee;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 .admin-table th {
-  background: #f8f9fa;
-  font-weight: 600;
-  color: #333;
-}
-
-.admin-table tr:hover {
-  background: #f8f9fa;
-}
-
-.role-badge {
-  padding: 4px 12px;
-  border-radius: 20px;
+  padding: 12px 16px;
+  text-align: left;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  color: #6b7280;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.admin-table th:first-child {
+  border-radius: 8px 0 0 0;
+}
+
+.admin-table th:last-child {
+  border-radius: 0 8px 0 0;
+}
+
+.admin-table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  color: #374151;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-table tbody tr {
+  transition: background 0.1s ease;
+}
+
+.admin-table tbody tr:hover {
+  background: #f9fbfe;
+}
+
+/* ---- Badges ---- */
+.role-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
 .role-job_seeker {
-  background: #e3f2fd;
-  color: #1565c0;
+  background: #eef2ff;
+  color: #3461c7;
 }
 
 .role-recruiter {
-  background: #fff3e0;
-  color: #ef6c00;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .role-admin {
-  background: #fce4ec;
-  color: #c2185b;
+  background: #fae8ff;
+  color: #86198f;
 }
 
 .status-badge {
-  padding: 4px 12px;
-  border-radius: 20px;
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .status-badge.active {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: #ecfdf5;
+  color: #065f46;
 }
 
 .status-badge.suspended {
-  background: #ffebee;
-  color: #c62828;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
+/* ---- Admin Action Buttons (outline style to match theme) ---- */
 .action-buttons {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+}
+
+.btn-suspend,
+.btn-activate,
+.btn-delete {
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.15s ease;
 }
 
 .btn-suspend {
-  background: #ff9800;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
+  background: #ffffff;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
 }
 
 .btn-suspend:hover {
-  background: #f57c00;
+  background: #c2410c;
+  color: #ffffff;
+  border-color: #c2410c;
 }
 
 .btn-activate {
-  background: #4caf50;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
+  background: #ffffff;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
 }
 
 .btn-activate:hover {
-  background: #388e3c;
+  background: #065f46;
+  color: #ffffff;
+  border-color: #065f46;
 }
 
 .btn-delete {
-  background: #f44336;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
+  background: #ffffff;
+  color: #991b1b;
+  border: 1px solid #fecaca;
 }
 
 .btn-delete:hover {
-  background: #d32f2f;
+  background: #991b1b;
+  color: #ffffff;
+  border-color: #991b1b;
 }
 
 .no-action {
-  color: #999;
+  color: #9ca3af;
+  font-size: 13px;
   font-style: italic;
-  font-size: 12px;
 }
 
+/* ---- Access Denied Card ---- */
 .error-card {
-  background: white;
-  padding: 40px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  padding: 48px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
   text-align: center;
+  max-width: 480px;
+  margin: 60px auto;
 }
 
 .error-card h2 {
-  color: #c62828;
-  margin-bottom: 20px;
+  color: #991b1b;
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.error-card p {
+  color: #6b7280;
+  font-size: 15px;
+  margin: 4px 0;
 }
 
 .back-link {
   display: inline-block;
-  margin-top: 20px;
-  color: #667eea;
+  margin-top: 24px;
+  padding: 10px 24px;
+  border: 2px solid #3461c7;
+  border-radius: 6px;
+  color: #3461c7;
+  font-weight: 600;
+  font-size: 14px;
   text-decoration: none;
-  font-weight: 500;
+  transition: all 0.15s ease;
 }
 
 .back-link:hover {
-  text-decoration: underline;
+  background: #3461c7;
+  color: #ffffff;
+}
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+@media (max-width: 768px) {
+  .app-nav {
+    padding: 0 16px;
+  }
+
+  .nav-center {
+    display: none;
+  }
+
+  .page-hero {
+    padding: 32px 16px;
+  }
+
+  .page-hero h2 {
+    font-size: 24px;
+  }
+
+  .app-content {
+    padding: 24px 16px 48px;
+  }
+
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-info {
+    grid-template-columns: 1fr;
+  }
+
+  .form-row {
+    flex-direction: column;
+  }
+
+  .form-row .privacy-select {
+    flex: 1;
+  }
+
+  .resume-item {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .nav-actions {
+    gap: 8px;
+  }
 }

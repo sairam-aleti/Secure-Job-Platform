@@ -93,26 +93,46 @@ function Profile() {
 
   if (loading) {
     return (
-      <div className="dashboard-container">
-        <p>Loading...</p>
+      <div className="app-layout">
+        <nav className="app-nav">
+          <a href="/dashboard" className="nav-brand">FortKnox</a>
+          <div className="nav-center">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/profile">Profile</a>
+          </div>
+          <div className="nav-actions">
+            <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
+          </div>
+        </nav>
+        <main className="app-content">
+          <p style={{ textAlign: 'center', color: '#6b7280', marginTop: '80px', fontSize: '15px' }}>Loading profile...</p>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="dashboard-container">
-      <nav className="dashboard-nav">
-        <h1>Secure Job Platform</h1>
-        <div className="nav-links">
+    <div className="app-layout">
+      <nav className="app-nav">
+        <a href="/dashboard" className="nav-brand">FortKnox</a>
+        <div className="nav-center">
           <a href="/dashboard">Dashboard</a>
-          <button onClick={handleLogout}>Logout</button>
+          <a href="/profile">Profile</a>
+        </div>
+        <div className="nav-actions">
+          <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
         </div>
       </nav>
 
-      <main className="dashboard-main">
-        <div className="profile-card">
-          <h2>Edit Your Profile</h2>
-          
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <h2>Edit Profile</h2>
+          <p>Update your information and privacy preferences</p>
+        </div>
+      </div>
+
+      <main className="app-content">
+        <div className="card">
           <form onSubmit={handleSubmit}>
             <div className="form-row">
               <div className="form-group">
