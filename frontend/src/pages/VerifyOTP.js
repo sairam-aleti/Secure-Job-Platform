@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import './Auth.css';
@@ -11,13 +11,20 @@ function VerifyOTP() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  
+  // NEW: Ref to track if OTP has already been triggered in this session
+  const otpSentRef = useRef(false);
 
   useEffect(() => {
     const pendingEmail = localStorage.getItem('pending_email');
     if (pendingEmail) {
       setEmail(pendingEmail);
-      // Automatically send OTP
-      sendOTP(pendingEmail);
+      
+      // SAFETY CHECK: Only trigger the automatic OTP send once
+      if (!otpSentRef.current) {
+        otpSentRef.current = true; 
+        sendOTP(pendingEmail);
+      }
     } else {
       navigate('/register');
     }
@@ -26,10 +33,19 @@ function VerifyOTP() {
   const sendOTP = async (emailAddress) => {
     try {
       const response = await authAPI.sendOTP(emailAddress);
+      // dev_otp will be null now that we use real email, but we keep the state for safety
       setDevOtp(response.data.dev_otp);
-      setSuccess('OTP sent! (Check dev_otp below for testing)');
+      setSuccess('OTP sent! Please check your email inbox.');
+      setError('');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to send OTP');
+      let errorMsg = 'Failed to send OTP';
+      if (err.response?.data?.detail) {
+          errorMsg = Array.isArray(err.response.data.detail) 
+            ? err.response.data.detail[0].msg 
+            : err.response.data.detail;
+      }
+      setError(errorMsg);
+      setSuccess('');
     }
   };
 
@@ -44,15 +60,19 @@ function VerifyOTP() {
       localStorage.removeItem('pending_email');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid OTP');
-    } finally {
+      let errorMsg = 'Invalid OTP';
+      if (err.response?.data?.detail) {
+          errorMsg = Array.isArray(err.response.data.detail) 
+            ? err.response.data.detail[0].msg 
+            : err.response.data.detail;
+      }
+      setError(errorMsg);
       setLoading(false);
     }
   };
 
   return (
     <>
-      {/* ---- Navbar ---- */}
       <nav className="auth-navbar">
         <a href="/" className="auth-navbar-brand">FortKnox</a>
         <div className="auth-navbar-center">
@@ -66,7 +86,6 @@ function VerifyOTP() {
         </div>
       </nav>
 
-      {/* ---- Hero ---- */}
       <section className="auth-hero">
         <div className="auth-hero-text">
           <h1>Almost there</h1>
@@ -77,19 +96,12 @@ function VerifyOTP() {
         </div>
       </section>
 
-      {/* ---- Form Section ---- */}
       <section className="auth-form-section">
         <div className="auth-card">
           <h2>Verify your email</h2>
           <p className="otp-info">
             Enter the 6-digit code sent to <span className="otp-email">{email}</span>
           </p>
-
-          {devOtp && (
-            <div className="success-message">
-              <strong>Dev OTP:</strong> {devOtp}
-            </div>
-          )}
 
           <form onSubmit={handleSubmit}>
             <div className="form-group">
@@ -113,14 +125,16 @@ function VerifyOTP() {
           </form>
 
           <p className="auth-link">
-            <a href="#" onClick={() => sendOTP(email)}>Resend Code</a>
+            <a href="#!" onClick={(e) => {
+              e.preventDefault();
+              sendOTP(email);
+            }}>Resend Code</a>
           </p>
         </div>
       </section>
 
-      {/* ---- Security Features Bar ---- */}
       <section className="auth-features-bar">
-        <div className="auth-feature-item"><span className="auth-feature-icon">⏱️</span> Code expires in 2 min</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">⏱️</span> Code expires in 10 min</div>
         <div className="auth-feature-item"><span className="auth-feature-icon">🔒</span> 5 attempts max</div>
         <div className="auth-feature-item"><span className="auth-feature-icon">🛡️</span> Rate-limited</div>
         <div className="auth-feature-item"><span className="auth-feature-icon">✉️</span> Email verified</div>

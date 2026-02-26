@@ -9,6 +9,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     full_name = Column(String)
+    mobile_number = Column(String, unique=True, nullable=True) 
     role = Column(String)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)

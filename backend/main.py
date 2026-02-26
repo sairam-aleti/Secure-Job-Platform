@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app import models, schemas, security, auth, otp, encryption
@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
 from datetime import datetime, timedelta, timezone 
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 import os
 import base64
 import hashlib
@@ -40,6 +41,20 @@ models.Base.metadata.create_all(bind=engine)
 # Initialize FastAPI
 app = FastAPI(title="Secure Job Platform", version="2.0")
 
+conf = ConnectionConfig(
+    MAIL_USERNAME = "fortknox914@gmail.com", 
+    MAIL_PASSWORD = "lrigfpadqfothkxs",       
+    MAIL_FROM = "fortknox914@gmail.com",     
+    MAIL_PORT = 587,
+    MAIL_SERVER = "smtp.gmail.com",
+    MAIL_STARTTLS = True,
+    MAIL_SSL_TLS = False,
+    USE_CREDENTIALS = True,
+    VALIDATE_CERTS = True
+)
+
+fastmail = FastMail(conf)
+
 # CORS Configuration - Allow frontend to connect
 app.add_middleware(
     CORSMiddleware,
@@ -63,34 +78,34 @@ def home():
 
 @app.post("/register", response_model=schemas.UserResponse)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    """
-    SECURE USER REGISTRATION
-    - Validates input using Pydantic schemas
-    - Checks for duplicate emails
-    - Hashes password with Argon2
-    - Stores user in database
-    """
-    # Check if email already exists
+    # 1. Check if email already exists
     existing_user = db.query(models.User).filter(models.User.email == user.email).first()
+    
     if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        # IF USER EXISTS BUT IS VERIFIED: Block them (Security)
+        if existing_user.is_verified:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # IF USER EXISTS BUT IS NOT VERIFIED: Allow update (User Experience)
+        existing_user.hashed_password = security.hash_password(user.password)
+        existing_user.full_name = user.full_name
+        existing_user.role = user.role
+        db.commit()
+        db.refresh(existing_user)
+        return existing_user
     
-    # Hash the password (SECURITY CRITICAL)
+    # 2. If new user, create normally
     hashed_password = security.hash_password(user.password)
-    
-    # Create new user
     new_user = models.User(
         email=user.email,
         hashed_password=hashed_password,
         full_name=user.full_name,
         role=user.role,
-        is_verified=False  # Will be True after OTP verification
+        is_verified=False
     )
-    
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
     return new_user
 
 @app.post("/login", response_model=schemas.Token)
@@ -123,36 +138,33 @@ def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/send-otp", response_model=schemas.OTPResponse)
-@limiter.limit("100/15minutes")  
-def send_otp(request: Request, otp_request: schemas.OTPRequest, db: Session = Depends(get_db)):
+@limiter.limit("100/15minutes")
+async def send_otp(
+    request: Request, 
+    otp_request: schemas.OTPRequest, 
+    background_tasks: BackgroundTasks, # For non-blocking email sending
+    db: Session = Depends(get_db)
+):
     """
-    SEND OTP FOR EMAIL VERIFICATION
-    - Rate limited to prevent spam (3 requests per 15 min per IP)
-    - Generates 6-digit OTP valid for 2 minutes
-    - Stores OTP in database
-    - In DEV mode: returns OTP in response (for testing)
-    - In PROD mode: sends email
+    SEND OTP VIA REAL GMAIL
+    - Restricted to @gmail.com and @iiitd.ac.in
+    - Uses BackgroundTasks to prevent UI freezing
     """
-    # Check if user exists
     user = db.query(models.User).filter(models.User.email == otp_request.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Check if account is already verified
-    if user.is_verified:
-        raise HTTPException(status_code=400, detail="Account already verified")
-    
-    # Check if account is locked
+    # 1. Security Check: Account Lockout
     if user.locked_until and otp.is_account_locked(user.locked_until):
-        raise HTTPException(
-            status_code=403, 
-            detail=f"Account locked due to too many failed attempts. Try again after 20 minutes."
-        )
+        raise HTTPException(status_code=403, detail="Account locked. Try again later.")
     
-    # Generate OTP
+    db.query(models.OTP).filter(
+        models.OTP.user_id == user.id, 
+        models.OTP.is_used == False
+    ).update({"is_used": True})
+    
+    # 2. Generate and Save OTP
     otp_code = otp.generate_otp()
-    
-    # Save OTP to database
     new_otp = models.OTP(
         user_id=user.id,
         code=otp_code,
@@ -160,12 +172,21 @@ def send_otp(request: Request, otp_request: schemas.OTPRequest, db: Session = De
     )
     db.add(new_otp)
     db.commit()
-    
-    # DEV MODE: Return OTP in response (for testing without email)
-    # PROD MODE: Send email here (we'll add this later)
+
+    # 3. Create Email Message
+    message = MessageSchema(
+        subject="FortKnox Security - Your Verification Code",
+        recipients=[user.email],
+        body=f"Hello {user.full_name},\n\nYour security verification code is: {otp_code}\n\nThis code will expire in 10 minutes.\n\nStay Secure,\nFortKnox Team",
+        subtype=MessageType.plain
+    )
+
+    # 4. Send Email in Background (Security best practice for performance)
+    background_tasks.add_task(fastmail.send_message, message)
+
     return {
-        "message": "OTP sent successfully (check terminal in dev mode)",
-        "dev_otp": otp_code  # Remove this in production
+        "message": "A verification code has been sent to your registered email.",
+        "dev_otp": None # SECURITY: No longer leaking OTP in API response
     }
 
 @app.post("/verify-otp")

@@ -81,7 +81,9 @@ function Profile() {
       await profileAPI.updateProfile(profile);
       setMessage('Profile updated successfully!');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to update profile');
+      let errorMsg = err.response?.data?.detail || 'Update failed';
+      if (Array.isArray(errorMsg)) errorMsg = errorMsg[0].msg;
+      setError(errorMsg);
     } finally {
       setSaving(false);
     }

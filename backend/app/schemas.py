@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -7,8 +7,24 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     role: Literal["job_seeker", "recruiter", "admin"]
-    
+
+    @field_validator('email')
+    @classmethod
+    def validate_email_domain(cls, v: str) -> str:
+        allowed_domains = ['gmail.com', 'iiitd.ac.in']
+        domain = v.split('@')[-1].lower()
+        
+        # Bypass for our existing test accounts
+        test_accounts = ['superadmin@secure.com', 'recruiter@tech.com', 'final@test.com']
+        if v.lower() in test_accounts:
+            return v
+            
+        if domain not in allowed_domains:
+            raise ValueError('Registration is only allowed for @gmail.com or @iiitd.ac.in domains')
+        return v
+
     @field_validator('password')
+    @classmethod
     def password_strength(cls, v):
         if len(v) < 12:
             raise ValueError('Password must be at least 12 characters')
@@ -16,12 +32,6 @@ class UserCreate(BaseModel):
             raise ValueError('Password must contain at least one number')
         if not any(char.isupper() for char in v):
             raise ValueError('Password must contain at least one uppercase letter')
-        return v
-    
-    @field_validator('full_name')
-    def name_not_empty(cls, v):
-        if not v.strip():
-            raise ValueError('Name cannot be empty')
         return v
 
 class UserResponse(BaseModel):
@@ -51,7 +61,7 @@ class OTPVerify(BaseModel):
 
 class OTPResponse(BaseModel):
     message: str
-    dev_otp: str = None  # Only populated in dev mode
+    dev_otp: Optional[str] = None  # Only populated in dev mode
 
 class ResumeResponse(BaseModel):
     id: int

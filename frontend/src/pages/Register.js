@@ -26,13 +26,25 @@ function Register() {
     setError('');
     setLoading(true);
 
-    try {
+        try {
       await authAPI.register(formData);
-      // After registration, redirect to OTP verification
       localStorage.setItem('pending_email', formData.email);
       navigate('/verify-otp');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Registration failed');
+      // --- NEW ERROR HANDLER ---
+      let errorMsg = 'Registration failed';
+      
+      if (err.response?.data?.detail) {
+          // Check if the error is a Pydantic validation array
+          if (Array.isArray(err.response.data.detail)) {
+              errorMsg = err.response.data.detail[0].msg;
+          } else {
+              errorMsg = err.response.data.detail;
+          }
+      }
+      
+      setError(errorMsg); // This will now be a clean String
+      // -------------------------
     } finally {
       setLoading(false);
     }

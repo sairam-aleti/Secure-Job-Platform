@@ -40,8 +40,9 @@ function Login() {
       
       navigate('/dashboard');
     } catch (err) {
-      console.error('Login error:', err);
-      setError(err.response?.data?.detail || 'Login failed');
+      let errorMsg = err.response?.data?.detail || 'Login failed';
+      if (Array.isArray(errorMsg)) errorMsg = errorMsg[0].msg;
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
