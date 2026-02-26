@@ -1,30 +1,27 @@
 #!/bin/bash
+echo "===== FortKnox Secure Setup ====="
 
-echo "===== Secure Job Platform - Setup Script ====="
-echo ""
-
-# Step 1: Create virtual environment
-echo "[1/5] Creating virtual environment..."
+# 1. Create virtual environment
+echo "[1/5] Creating Python Virtual Environment..."
 python3 -m venv ../fcs-project
 source ../fcs-project/bin/activate
 
-# Step 2: Install dependencies
-echo "[2/5] Installing dependencies..."
+# 2. Install Backend Dependencies
+echo "[2/5] Installing Python libraries (FastAPI, SQLAlchemy, psycopg2, cryptography, pypdf)..."
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# Step 3: Generate SSL certificates
-echo "[3/5] Generating SSL certificates..."
+# 3. Generate Security Certificates (HTTPS)
+echo "[3/5] Generating RSA-4096 SSL Certificates..."
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj "/C=IN/ST=Delhi/L=NewDelhi/O=IIITD/CN=SecureJobPlatform"
 
-# Step 4: Create uploads folder
-echo "[4/5] Creating uploads folder..."
+# 4. Initialize Storage
+echo "[4/5] Creating secure upload directory..."
 mkdir -p uploads
 
-# Step 5: Database will auto-create on first run
-echo "[5/5] Setup complete!"
+# 5. Database Verification
+echo "[5/5] Setup complete. Database tables will be initialized on first run."
 echo ""
-echo "To start the server, run:"
-echo "  source ../fcs-project/bin/activate"
-echo "  uvicorn main:app --ssl-keyfile=key.pem --ssl-certfile=cert.pem --reload"
-echo ""
-echo "Then visit: https://127.0.0.1:8000/docs"
+echo "To start the Backend:"
+echo "source ../fcs-project/bin/activate"
+echo "uvicorn main:app --host 127.0.0.1 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem --reload"
