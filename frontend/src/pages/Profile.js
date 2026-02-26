@@ -17,6 +17,7 @@ function Profile() {
     skills_privacy: 'public',
     experience_privacy: 'public',
     education_privacy: 'public',
+    share_view_history: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,6 +51,7 @@ function Profile() {
         skills_privacy: data.skills_privacy || 'public',
         experience_privacy: data.experience_privacy || 'public',
         education_privacy: data.education_privacy || 'public',
+        share_view_history: data.share_view_history ?? true,
       });
     } catch (err) {
       setError('Failed to load profile');
@@ -281,6 +283,26 @@ function Profile() {
                   <option value="connections">Connections Only</option>
                   <option value="private">Private</option>
                 </select>
+              </div>
+            </div>
+
+            <div className="card" style={{ background: '#f9fafb', border: '1px solid #e5e7eb', marginTop: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <input
+                  type="checkbox"
+                  name="share_view_history"
+                  checked={profile.share_view_history}
+                  onChange={(e) => setProfile({...profile, share_view_history: e.target.checked})}
+                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                />
+                <div>
+                  <label style={{ fontWeight: '600', marginBottom: '2px', display: 'block' }}>
+                    Share View History
+                  </label>
+                  <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>
+                    If turned off, you will appear as "Anonymous Professional" when viewing others' profiles.
+                  </p>
+                </div>
               </div>
             </div>
 

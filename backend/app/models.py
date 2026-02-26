@@ -37,6 +37,8 @@ class User(Base):
     # SECURITY MANDATE: RSA Public Key for E2EE Messaging
     public_key = Column(String, nullable=True)
 
+    share_view_history = Column(Boolean, default=True)
+
 class OTP(Base):
     __tablename__ = "otps"
     id = Column(Integer, primary_key=True, index=True)
@@ -54,6 +56,7 @@ class Resume(Base):
     encryption_key = Column(String)
     nonce = Column(String)
     file_size = Column(Integer)
+    extracted_skills = Column(String, nullable=True) # Non-sensitive keywords for matching
     uploaded_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 class Company(Base):
@@ -110,3 +113,20 @@ class AuditLog(Base):
     # FOR BONUS: Integrity Hash
     log_hash = Column(String) 
     previous_hash = Column(String)
+
+class Connection(Base):
+    __tablename__ = "connections"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True) # The person sending the request
+    connection_id = Column(Integer, index=True) # The person receiving the request
+    status = Column(String) # "pending", "accepted", or "rejected"
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class ProfileView(Base):
+    __tablename__ = "profile_views"
+    id = Column(Integer, primary_key=True, index=True)
+    viewer_id = Column(Integer, index=True) # Who looked
+    target_id = Column(Integer, index=True) # At whom
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+

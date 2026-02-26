@@ -12,6 +12,7 @@ function Chat() {
   const [myPrivateKey, setMyPrivateKey] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
 
@@ -23,9 +24,11 @@ function Chat() {
 
   const initializeChat = async () => {
     try {
-      const profRes = await profileAPI.getProfile();
+      // 1. Get My Profile
+      let profRes = await profileAPI.getProfile();
       setProfile(profRes.data);
 
+      // 2. Unlock My Private Key
       const encryptedKeyJson = localStorage.getItem('encrypted_private_key');
       const password = sessionStorage.getItem('user_pwd');
       
@@ -33,15 +36,16 @@ function Chat() {
         const decryptedKey = cryptoService.decryptPrivateKey(encryptedKeyJson, password);
         setMyPrivateKey(decryptedKey);
       } else {
-        console.error("DEBUG: Local Private Key or Session Password missing");
+        console.warn("Private Key locked. Messages will be encrypted but you cannot read them.");
       }
 
+      // 3. Get Recipient's Public Key
       const keyRes = await authAPI.getUserPublicKey(receiverId);
       setReceiverKey(keyRes.data.public_key);
 
       await fetchMessages();
     } catch (err) {
-      console.error("Handshake failed:", err);
+      console.error("Chat initialization error:", err);
     } finally {
       setLoading(false);
     }
@@ -61,41 +65,56 @@ function Chat() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    
-    // DEBUGGING ALERTS: To find out why "nothing happens"
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || isSending) return;
+
     if (!receiverKey) {
-        alert("Blocked: Recipient Public Key not loaded from server.");
-        return;
-    }
-    if (!profile?.public_key) {
-        alert("Blocked: Your Public Key is missing from profile. Please refresh Dashboard.");
-        return;
-    }
-    if (!myPrivateKey) {
-        alert("Blocked: Your Private Key is locked. Please log out and log in again.");
+        alert("Cannot send: Recipient has no encryption key.");
         return;
     }
 
+    setIsSending(true);
     try {
-      const doubleCiphertext = cryptoService.encryptDouble(newMessage, receiverKey, profile.public_key);
+      // FIX: Derive public key locally from private key (more reliable than server fetch)
+      let myPublicKey = profile?.public_key;
+      if (!myPublicKey && myPrivateKey) {
+          myPublicKey = cryptoService.getPublicKeyFromPrivate(myPrivateKey);
+      }
+
+      // Encrypt
+      const doubleCiphertext = cryptoService.encryptDouble(
+        newMessage, 
+        receiverKey, 
+        myPublicKey
+      );
+      
+      if (!doubleCiphertext) throw new Error("Encryption failed");
+
+      // Send
       await messageAPI.sendMessage({
         receiver_id: parseInt(receiverId),
         encrypted_content: doubleCiphertext
       });
+      
       setNewMessage('');
       fetchMessages();
     } catch (err) {
-      alert("System Error: Check backend terminal.");
+      console.error(err);
+      alert("Failed to send secure message.");
+    } finally {
+      setIsSending(false);
     }
   };
 
   const renderMessage = (msg) => {
     const isMe = msg.sender_id === profile?.id;
     let content = "[Encrypted Content]";
+
     if (myPrivateKey) {
       content = cryptoService.decryptMessage(msg.encrypted_content, myPrivateKey);
+    } else {
+      content = "🔒 key locked";
     }
+
     return (
       <div key={msg.id} style={{
         alignSelf: isMe ? 'flex-end' : 'flex-start',
@@ -103,18 +122,21 @@ function Chat() {
         color: isMe ? 'white' : '#1a1a2e',
         padding: '12px 18px',
         borderRadius: '14px',
+        borderBottomRightRadius: isMe ? '2px' : '14px',
+        borderBottomLeftRadius: isMe ? '14px' : '2px',
         maxWidth: '80%',
-        marginBottom: '12px'
+        marginBottom: '12px',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
       }}>
         <div style={{ fontSize: '14px' }}>{content}</div>
         <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '5px', textAlign: 'right' }}>
-          {new Date(msg.timestamp).toLocaleString()}
+          {new Date(msg.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       </div>
     );
   };
 
-  if (loading) return <div className="app-layout"><main className="app-content"><p style={{textAlign:'center'}}>Establishing secure channel...</p></main></div>;
+  if (loading) return <div className="app-layout"><main className="app-content"><p style={{textAlign:'center', marginTop:'50px'}}>Establishing secure channel...</p></main></div>;
 
   return (
     <div className="app-layout">
@@ -135,12 +157,15 @@ function Chat() {
           <form onSubmit={handleSendMessage} style={{ padding: '20px 28px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: '12px' }}>
             <input 
               type="text" 
-              placeholder="Write a message..." 
+              placeholder="Write a secure message..." 
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
+              disabled={isSending}
               style={{ flex: 1, borderRadius: '8px', padding: '10px', border: '1px solid #e5e7eb' }}
             />
-            <button className="btn-upload" type="submit" style={{ width: 'auto' }}>Send</button>
+            <button className="btn-upload" type="submit" disabled={isSending} style={{ width: 'auto' }}>
+              {isSending ? "..." : "Send"}
+            </button>
           </form>
         </div>
       </main>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { profileAPI, resumeAPI, jobAPI, applicationAPI, authAPI } from '../services/api'; 
+import { profileAPI, resumeAPI, jobAPI, applicationAPI, authAPI, connectionAPI, userAPI } from '../services/api'; 
 import cryptoService from '../services/cryptoService'; 
 import './Dashboard.css';
 
@@ -9,10 +9,14 @@ function Dashboard() {
   const [resumes, setResumes] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
   const [applications, setApplications] = useState([]); 
+  const [pendingRequests, setPendingRequests] = useState([]); 
+  const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [file, setFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [recommendations, setRecommendations] = useState([]); 
+  const [viewers, setViewers] = useState([]); // State for profile viewers
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -34,18 +38,27 @@ function Dashboard() {
         await setupEncryption();
       }
       
-      // Fetch specific data based on role
+      // Role-based data fetching
       if (response.data.role === 'job_seeker') {
         fetchResumes();
         fetchUserApplications(); 
+        fetchRecommendations();
       } else if (response.data.role === 'recruiter') {
         fetchMyJobs();
         fetchRecruiterApplications(); 
+        fetchPendingRequests(); 
       }
+
+      // FETCH SYSTEM DATA (For everyone except admin)
+      if (response.data.role !== 'admin') {
+        fetchMyConnections();
+        fetchProfileViewers(); // NOW ACTIVATED: Fetch who looked at your profile
+      }
+
     } catch (err) {
       setError('Failed to load profile');
       if (err.response?.status === 401) {
-        localStorage.removeItem('access_token');
+        localStorage.clear();
         navigate('/login');
       }
     } finally {
@@ -56,17 +69,12 @@ function Dashboard() {
   const setupEncryption = async () => {
     const password = sessionStorage.getItem('user_pwd');
     if (!password) return;
-    
-    console.log("Generating Secure Messaging Keys...");
     try {
       const { publicKey, privateKey } = cryptoService.generateKeyPair();
       const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, password);
       localStorage.setItem('encrypted_private_key', encryptedPrivKey);
       await authAPI.updatePublicKey({ public_key: publicKey });
-      console.log("Identity established successfully.");
-    } catch (err) {
-      console.error("Encryption setup failed:", err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const fetchResumes = async () => {
@@ -97,6 +105,37 @@ function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
+  const fetchPendingRequests = async () => {
+    try {
+      const response = await connectionAPI.getPending();
+      setPendingRequests(response.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchRecommendations = async () => {
+    try {
+        const res = await jobAPI.getRecommendations();
+        setRecommendations(res.data);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchMyConnections = async () => {
+    try {
+      const res = await userAPI.getDirectory();
+      const linked = res.data.filter(u => u.connection_status === 'accepted');
+      setConnections(linked);
+    } catch (err) { console.error(err); }
+  };
+  
+  const fetchProfileViewers = async () => {
+    try {
+        const res = await userAPI.getViewers();
+        setViewers(res.data);
+    } catch (err) {
+        console.error("Failed to fetch profile viewers", err);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.clear();
     sessionStorage.clear();
@@ -115,11 +154,12 @@ function Dashboard() {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      setUploadStatus('Uploading...');
+      setUploadStatus('Uploading and parsing...');
       await resumeAPI.upload(formData);
       setUploadStatus('Resume uploaded successfully!');
       setFile(null);
       fetchResumes();
+      fetchRecommendations();
     } catch (err) {
       setUploadStatus(err.response?.data?.detail || 'Upload failed');
     }
@@ -136,6 +176,7 @@ function Dashboard() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       alert('Download failed: Not authorized or file error.');
     }
@@ -153,12 +194,11 @@ function Dashboard() {
 
   return (
     <div className="app-layout">
-      {/* --- REFINED NAVBAR --- */}
       <nav className="app-nav">
         <a href="/dashboard" className="nav-brand">FortKnox</a>
         <div className="nav-center">
           <a href="/dashboard">Dashboard</a>
-          {/* Admin doesn't need Job Board or Profile */}
+          {profile?.role !== 'admin' && <a href="/network">Network</a>}
           {profile?.role !== 'admin' && <a href="/jobs">Job Board</a>}
           {profile?.role === 'job_seeker' && <a href="/profile">Profile</a>}
           {profile?.role === 'admin' && <a href="/admin">Admin Panel</a>}
@@ -182,7 +222,6 @@ function Dashboard() {
       </div>
 
       <main className="app-content">
-        {/* --- COMMON STATS --- */}
         <div className="stats-row">
           <div className="stat-item">
             <div className="stat-label">Email</div>
@@ -203,6 +242,38 @@ function Dashboard() {
         {/* --- RECRUITER VIEW --- */}
         {profile?.role === 'recruiter' && (
           <>
+            {pendingRequests.length > 0 && (
+              <div className="card" style={{ borderLeft: '4px solid #f59e0b' }}>
+                <div className="card-header">
+                  <h3>Connection Requests</h3>
+                  <span className="card-badge" style={{ background: '#fef3c7', color: '#92400e' }}>New Requests</span>
+                </div>
+                <ul className="resume-list">
+                  {pendingRequests.map((req) => (
+                    <li key={req.request_id} className="resume-item">
+                      <div className="resume-info">
+                        <div className="resume-details">
+                          <span className="resume-name">{req.name}</span>
+                          <span className="resume-meta">{req.email}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button className="btn-activate" onClick={async () => {
+                          await connectionAPI.updateRequest(req.request_id, 'accepted');
+                          fetchPendingRequests();
+                          fetchMyConnections();
+                        }}>Accept</button>
+                        <button className="btn-delete" onClick={async () => {
+                          await connectionAPI.updateRequest(req.request_id, 'rejected');
+                          fetchPendingRequests();
+                        }}>Decline</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="card">
               <div className="card-header">
                 <h3>Quick Actions</h3>
@@ -243,14 +314,46 @@ function Dashboard() {
                 </div>
                 <ul className="resume-list">
                   {applications.map((app) => (
-                    <li key={app.id} className="resume-item">
-                      <div className="resume-info">
-                        <div className="resume-details">
-                          <span className="resume-name">{app.applicant_name}</span>
-                          <span className="resume-meta">Position: {app.job_title}</span>
+                    <li key={app.id} className="resume-item" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '15px' }}>
+                        <div className="resume-info">
+                          <div className="resume-details">
+                            <span className="resume-name">
+                                {app.applicant_name}
+                                <span className="card-badge" style={{ marginLeft: '10px', background: app.match_score > 70 ? '#ecfdf5' : '#fff7ed', color: app.match_score > 70 ? '#065f46' : '#9a3412' }}>
+                                    {app.match_score}% Match
+                                </span>
+                            </span>
+                            <div className="resume-meta">
+                              <span>Position: {app.job_title}</span>
+                              <span>Applied: {new Date(app.applied_at).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '13px', color: '#6b7280', fontWeight: '600' }}>Status:</span>
+                          <select 
+                            className="status-badge"
+                            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#ffffff', fontSize: '13px', cursor: 'pointer'}}
+                            value={app.status} 
+                            onChange={async (e) => {
+                              try {
+                                await applicationAPI.updateStatus(app.id, e.target.value);
+                                fetchRecruiterApplications();
+                              } catch (err) { alert("Failed to update status."); }
+                            }}
+                          >
+                            <option value="Applied">Applied</option>
+                            <option value="Reviewed">Reviewed</option>
+                            <option value="Interview">Interview</option>
+                            <option value="Offer">Offer</option>
+                            <option value="Rejected">Rejected</option>
+                          </select>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '10px' }}>
+
+                      <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
                         <button className="download-btn" onClick={() => handleDownload(app.resume_id, `Resume_${app.applicant_name}.pdf`)}>View Resume</button>
                         <button className="download-btn" style={{ borderColor: '#667eea', color: '#667eea' }} onClick={() => navigate(`/chat/${app.applicant_id}`)}>Chat</button>
                       </div>
@@ -265,6 +368,24 @@ function Dashboard() {
         {/* --- JOB SEEKER VIEW --- */}
         {profile?.role === 'job_seeker' && (
           <>
+            {recommendations.length > 0 && (
+              <div className="card">
+                <div className="card-header">
+                  <h3>Recommended for You</h3>
+                  <span className="card-badge" style={{ background: '#eef2ff', color: '#3461c7' }}>Intelligent Matching</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginTop: '10px' }}>
+                  {recommendations.map((job) => (
+                    <div key={job.job_id} className="stat-item" style={{ border: '1px solid #e5e7eb', cursor: 'pointer' }} onClick={() => navigate(`/apply/${job.job_id}`)}>
+                      <div className="stat-label" style={{ color: '#059669', fontWeight: '700' }}>{job.match_score}% Match</div>
+                      <div className="stat-value" style={{ fontSize: '16px', marginBottom: '5px' }}>{job.title}</div>
+                      <div style={{ fontSize: '13px', color: '#6b7280' }}>{job.company} • {job.location}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="card">
               <div className="card-header"><h3>Profile Summary</h3></div>
               <div className="profile-info">
@@ -306,6 +427,69 @@ function Dashboard() {
               </div>
             )}
           </>
+        )}
+
+        {/* --- RECENT VIEWERS SECTION (Requirement 2A) --- */}
+        {profile?.role !== 'admin' && (
+          <div className="card">
+            <div className="card-header">
+              <h3>Recent Profile Viewers</h3>
+              <span className="card-badge" style={{ background: '#f3f4f6', color: '#4b5563' }}>Last 5 visits</span>
+            </div>
+            {viewers.length === 0 ? (
+              <p style={{ color: '#9ca3af', textAlign: 'center', padding: '24px 0' }}>No recent views recorded.</p>
+            ) : (
+              <ul className="resume-list">
+                {viewers.map((viewer, index) => (
+                  <li key={index} className="resume-item">
+                    <div className="resume-info">
+                      <span className="resume-name">{viewer.viewer_name}</span>
+                      <span className="resume-meta">Viewed on: {new Date(viewer.timestamp).toLocaleString()}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* --- YOUR NETWORK SECTION --- */}
+        {profile?.role !== 'admin' && (
+          <div className="card">
+            <div className="card-header">
+              <h3>Your Network</h3>
+              <span className="card-badge" style={{ background: '#eef2ff', color: '#3461c7' }}>
+                {connections.length} Professional{connections.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {connections.length === 0 ? (
+              <p style={{ color: '#9ca3af', textAlign: 'center', padding: '24px 0' }}>
+                No active connections. Visit the Network tab to find professionals.
+              </p>
+            ) : (
+              <ul className="resume-list">
+                {connections.map((conn) => (
+                  <li key={conn.id} className="resume-item">
+                    <div className="resume-info">
+                      <div className="resume-details">
+                        <span className="resume-name">{conn.full_name}</span>
+                        <span className="resume-meta" style={{ textTransform: 'capitalize' }}>
+                          {conn.role.replace('_', ' ')} • {conn.headline || 'Professional Member'}
+                        </span>
+                      </div>
+                    </div>
+                    <button 
+                      className="download-btn" 
+                      style={{ borderColor: '#667eea', color: '#667eea' }}
+                      onClick={() => navigate(`/chat/${conn.id}`)}
+                    >
+                      Message
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {error && <div className="error-message">{error}</div>}

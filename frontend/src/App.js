@@ -11,6 +11,8 @@ import PostJob from './pages/PostJob';
 import JobBoard from './pages/JobBoard';
 import Apply from './pages/Apply';
 import Chat from './pages/Chat';
+import Network from './pages/Network';
+import ViewProfile from './pages/ViewProfile';
 import './App.css';
 
 function App() {
@@ -29,6 +31,8 @@ function App() {
         <Route path="/jobs" element={<JobBoard />} />
         <Route path="/apply/:jobId" element={<Apply />} />
         <Route path="/chat/:receiverId" element={<Chat />} />
+        <Route path="/network" element={<Network />} />
+        <Route path="/user-profile/:userId" element={<ViewProfile />} />
       </Routes>
     </Router>
   );

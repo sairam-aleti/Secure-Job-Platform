@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
+from typing import Optional, List
 from app import models, schemas, security, auth, otp, encryption
 from app.database import engine, get_db
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import base64
 import hashlib
+from app import parser
 
 def create_audit_log(db: Session, action: str, admin_email: str, target: str = None):
     last_log = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
@@ -241,27 +243,20 @@ def verify_otp_code(otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)
 def upload_resume(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user_email: str = Depends(auth.get_current_user)  # We'll create this dependency next
+    current_user_email: str = Depends(auth.get_current_user)
 ):
     """
-    SECURE RESUME UPLOAD
-    - Only verified users can upload
-    - Accepts PDF and DOCX only
-    - Encrypts file with AES-256-GCM before storage
-    - Stores encryption key securely in database
-    - File integrity is verified on decryption
+    SECURE RESUME UPLOAD WITH PARSING
+    - Parses text for matching before encryption
+    - Encrypts file with AES-256-GCM for storage
     """
-    # Get user from email (from JWT token)
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # Security Check: Only verified users
     if not user.is_verified:
-        raise HTTPException(status_code=403, detail="Please verify your email before uploading resume")
+        raise HTTPException(status_code=403, detail="Please verify your email first")
     
-    # Validate file type
     allowed_extensions = [".pdf", ".docx"]
     file_extension = os.path.splitext(file.filename)[1].lower()
-    
     if file_extension not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are allowed")
     
@@ -269,31 +264,33 @@ def upload_resume(
     file_content = file.file.read()
     file_size = len(file_content)
     
-    # Security Check: File size limit (10MB)
-    max_size = 10 * 1024 * 1024  # 10MB
-    if file_size > max_size:
-        raise HTTPException(status_code=400, detail="File size must be less than 10MB")
-    
-    # Generate encryption key and encrypt the file
+    if file_size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large")
+
+    # --- NEW: PARSE TEXT FOR INTELLIGENT MATCHING ---
+    extracted_text = ""
+    if file_extension == ".pdf":
+        extracted_text = parser.extract_text_from_pdf(file_content)
+
+    # Encryption process
     encryption_key = encryption.generate_key()
     encrypted_data, nonce = encryption.encrypt_file(file_content, encryption_key)
     
-    # Generate unique encrypted filename
     encrypted_filename = f"{user.id}_{os.urandom(8).hex()}{file_extension}.enc"
     file_path = os.path.join("uploads", encrypted_filename)
     
-    # Save encrypted file to disk
     with open(file_path, "wb") as f:
         f.write(encrypted_data)
     
-    # Save metadata to database
+    # Save metadata AND extracted skills
     resume = models.Resume(
         user_id=user.id,
         original_filename=file.filename,
         encrypted_filename=encrypted_filename,
         encryption_key=encryption.key_to_string(encryption_key),
         nonce=base64.b64encode(nonce).decode('utf-8'),
-        file_size=file_size
+        file_size=file_size,
+        extracted_skills=extracted_text # NEW: Storing text for the recommendation engine
     )
     
     db.add(resume)
@@ -723,3 +720,330 @@ def get_messages(
         ((models.Message.sender_id == user.id) & (models.Message.receiver_id == other_user_id)) |
         ((models.Message.sender_id == other_user_id) & (models.Message.receiver_id == user.id))
     ).order_by(models.Message.timestamp.asc()).all()
+
+@app.put("/applications/{application_id}/status")
+def update_application_status(
+    application_id: int,
+    status_data: schemas.ApplicationStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: Update the status of an application and log the change."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # 1. Security Check: Role
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can update application status")
+    
+    # 2. Find Application
+    application = db.query(models.Application).filter(models.Application.id == application_id).first()
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    # 3. Security Check: Ownership (Does this recruiter own the job?)
+    job = db.query(models.Job).filter(models.Job.id == application.job_id).first()
+    if job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized: This is not your job posting")
+        
+    # 4. Update Status
+    old_status = application.status
+    application.status = status_data.status
+    
+    # 5. Audit Log (Cryptographic Chain)
+    create_audit_log(db, "APP_STATUS_CHANGE", user.email, f"App ID {application_id}: {old_status} -> {status_data.status}")
+    
+    db.commit()
+    return {"message": "Status updated successfully", "new_status": application.status}
+
+# --- INTELLIGENT MATCHING ENDPOINT (Bonus +2%) ---
+
+@app.get("/jobs/recommendations")
+def get_job_recommendations(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    JOB SEEKER ONLY: Suggest Top 3 jobs based on resume parsing.
+    - Fetches the user's latest resume text.
+    - Compares text against all active job skills.
+    - Returns the Top 3 matches with scores.
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # 1. Get the latest resume for this user
+    resume = db.query(models.Resume).filter(
+        models.Resume.user_id == user.id
+    ).order_by(models.Resume.uploaded_at.desc()).first()
+    
+    if not resume or not resume.extracted_skills:
+        return []
+
+    # 2. Get all active jobs from other recruiters (or all jobs)
+    all_jobs = db.query(models.Job).filter(models.Job.is_active == True).all()
+    
+    # 3. Calculate scores
+    recommendations = []
+    for job in all_jobs:
+        # We join with the Company table to get the name for the UI
+        company = db.query(models.Company).filter(models.Company.id == job.company_id).first()
+        company_name = company.name if company else "Unknown Company"
+        
+        score = parser.calculate_match_score(resume.extracted_skills, job.skills_required)
+        
+        # Only suggest if there is some match
+        if score > 0:
+            recommendations.append({
+                "job_id": job.id,
+                "title": job.title,
+                "company": company_name,
+                "location": job.location,
+                "type": job.employment_type,
+                "match_score": score
+            })
+    
+    # 4. Sort by score (highest first) and take Top 3
+    recommendations.sort(key=lambda x: x['match_score'], reverse=True)
+    return recommendations[:3]
+
+@app.get("/users/directory")
+def get_user_directory(
+    q: Optional[str] = None,
+    page: int = 1,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """List users with connection status, ensuring keys match the frontend."""
+    limit = 15
+    offset = (page - 1) * limit
+    current_user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # 1. Filter out me and admins
+    query = db.query(models.User).filter(
+        models.User.id != current_user.id,
+        models.User.role != "admin"
+    )
+    
+    if q:
+        query = query.filter(
+            (models.User.full_name.ilike(f"%{q}%")) | 
+            (models.User.headline.ilike(f"%{q}%"))
+        )
+    
+    users = query.offset(offset).limit(limit).all()
+    
+    output = []
+    for u in users:
+        # Check relationship in either direction
+        conn = db.query(models.Connection).filter(
+            ((models.Connection.user_id == current_user.id) & (models.Connection.connection_id == u.id)) |
+            ((models.Connection.user_id == u.id) & (models.Connection.connection_id == current_user.id))
+        ).first()
+        
+        status = "none"
+        request_id = None
+        if conn:
+            if conn.status == "accepted":
+                status = "accepted"
+            else:
+                # Distinguish if I sent it or received it
+                status = "request_sent" if conn.user_id == current_user.id else "request_received"
+            request_id = conn.id
+
+        output.append({
+            "id": u.id,
+            "full_name": u.full_name,
+            "headline": u.headline or "Professional Member",
+            "role": u.role,
+            "connection_status": status,
+            "request_id": request_id
+        })
+        
+    return output
+
+@app.get("/users/{user_id}/profile", response_model=schemas.UserProfilePublic)
+def get_other_user_profile(
+    user_id: int, 
+    db: Session = Depends(get_db), 
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    SECURE PROFILE VIEW (Requirement A)
+    - Enforces Field-Level Privacy
+    - Tracks Recent Viewers (with 5-min cooldown)
+    - Calculates Mutual Connections (Graph Logic)
+    """
+    me = db.query(models.User).filter(models.User.email == current_user_email).first()
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # 1. Check if we are directly connected
+    conn = db.query(models.Connection).filter(
+        ((models.Connection.user_id == me.id) & (models.Connection.connection_id == target.id) & (models.Connection.status == "accepted")) |
+        ((models.Connection.user_id == target.id) & (models.Connection.connection_id == me.id) & (models.Connection.status == "accepted"))
+    ).first()
+    
+    is_connected = True if conn else False
+    
+    # 2. Privacy Filter Logic
+    def filter_field(value, privacy_level):
+        if privacy_level == "public":
+            return value
+        if privacy_level == "connections" and is_connected:
+            return value
+        return "RESTRICTED_BY_PRIVACY" if value else None
+
+    # 3. Smart Profile View Recording (Prevents duplicates within 5 minutes)
+    if me.id != target.id:
+        five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+        recent_view = db.query(models.ProfileView).filter(
+            models.ProfileView.viewer_id == me.id,
+            models.ProfileView.target_id == target.id,
+            models.ProfileView.timestamp > five_minutes_ago
+        ).first()
+
+        if not recent_view:
+            new_view = models.ProfileView(viewer_id=me.id, target_id=target.id)
+            db.add(new_view)
+            create_audit_log(db, "PROFILE_VIEW", me.email, f"Viewed user ID: {target.id}")
+            db.commit()
+
+    # 4. Calculate Mutual Connections (Requirement 2A)
+    # Get IDs of people connected to ME
+    my_conns = db.query(models.Connection).filter(
+        (models.Connection.status == "accepted") & 
+        ((models.Connection.user_id == me.id) | (models.Connection.connection_id == me.id))
+    ).all()
+    my_conn_ids = {c.user_id if c.connection_id == me.id else c.connection_id for c in my_conns}
+
+    # Get IDs of people connected to TARGET
+    target_conns = db.query(models.Connection).filter(
+        (models.Connection.status == "accepted") & 
+        ((models.Connection.user_id == target.id) | (models.Connection.connection_id == target.id))
+    ).all()
+    target_conn_ids = {c.user_id if c.connection_id == target.id else c.connection_id for c in target_conns}
+
+    # Find intersection of sets
+    mutual_count = len(my_conn_ids.intersection(target_conn_ids))
+
+    return {
+        "id": target.id,
+        "full_name": target.full_name,
+        "role": target.role,
+        "headline": filter_field(target.headline, target.headline_privacy),
+        "location": filter_field(target.location, target.location_privacy),
+        "bio": filter_field(target.bio, target.bio_privacy),
+        "skills": filter_field(target.skills, target.skills_privacy),
+        "experience": filter_field(target.experience, target.experience_privacy),
+        "education": filter_field(target.education, target.education_privacy),
+        "mutual_connections": mutual_count
+    }
+
+@app.get("/profile/viewers")
+def get_recent_viewers(
+    db: Session = Depends(get_db), 
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    SECURE VIEWERS LIST: Shows who looked at your profile.
+    - Respects "Anonymous Mode" (share_view_history toggle).
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # Get the 5 most recent views for this user
+    views = db.query(
+        models.ProfileView, 
+        models.User.full_name, 
+        models.User.share_view_history
+    ).join(models.User, models.User.id == models.ProfileView.viewer_id)\
+     .filter(models.ProfileView.target_id == user.id)\
+     .order_by(models.ProfileView.timestamp.desc())\
+     .limit(5).all()
+
+    output = []
+    for view_obj, viewer_name, can_share in views:
+        output.append({
+            "timestamp": view_obj.timestamp,
+            # PRIVACY CHECK: If viewer opted out, hide their name
+            "viewer_name": viewer_name if can_share else "Anonymous Professional"
+        })
+    return output
+
+# --- CONNECTION LOGIC ---
+
+@app.post("/connections/request", response_model=schemas.ConnectionResponse)
+def send_connection_request(
+    data: schemas.ConnectionRequest,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Send a connection request to another user."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    if user.id == data.receiver_id:
+        raise HTTPException(status_code=400, detail="Cannot connect to yourself")
+
+    # Check if request already exists (either direction)
+    exists = db.query(models.Connection).filter(
+        ((models.Connection.user_id == user.id) & (models.Connection.connection_id == data.receiver_id)) |
+        ((models.Connection.user_id == data.receiver_id) & (models.Connection.connection_id == user.id))
+    ).first()
+    
+    if exists:
+        raise HTTPException(status_code=400, detail="Connection or request already exists")
+
+    new_request = models.Connection(
+        user_id=user.id,
+        connection_id=data.receiver_id,
+        status="pending"
+    )
+    db.add(new_request)
+    
+    # AUDIT LOG (Security Requirement H)
+    create_audit_log(db, "CONN_REQUEST_SENT", user.email, f"Target ID: {data.receiver_id}")
+    
+    db.commit()
+    db.refresh(new_request)
+    return new_request
+
+@app.get("/connections/pending", response_model=List[dict])
+def get_pending_requests(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Get incoming connection requests for the current user."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    requests = db.query(
+        models.Connection.id.label("request_id"),
+        models.User.full_name.label("name"),
+        models.User.email.label("email")
+    ).join(models.User, models.User.id == models.Connection.user_id)\
+     .filter((models.Connection.connection_id == user.id) & (models.Connection.status == "pending")).all()
+    
+    # Format to list of dictionaries
+    return [dict(r._mapping) for r in requests]
+
+@app.put("/connections/accept")
+def update_connection_status(
+    data: schemas.ConnectionUpdate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Accept or Reject a connection request."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    conn_req = db.query(models.Connection).filter(models.Connection.id == data.request_id).first()
+    
+    if not conn_req or conn_req.connection_id != user.id:
+        raise HTTPException(status_code=404, detail="Request not found")
+        
+    if data.status == "accepted":
+        conn_req.status = "accepted"
+        create_audit_log(db, "CONN_ACCEPTED", user.email, f"Sender ID: {conn_req.user_id}")
+    else:
+        db.delete(conn_req)
+        create_audit_log(db, "CONN_REJECTED", user.email, f"Sender ID: {conn_req.user_id}")
+        
+    db.commit()
+    return {"message": f"Connection {data.status}"}

@@ -36,13 +36,25 @@ const cryptoService = {
     } catch (e) { return null; }
   },
 
+  // NEW: Helper to get public key from private key (avoids network call)
+  getPublicKeyFromPrivate: (privateKeyPem) => {
+    try {
+      const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+      const publicKey = forge.pki.setRsaPublicKey(privateKey.n, privateKey.e);
+      return forge.pki.publicKeyToPem(publicKey);
+    } catch (e) { return null; }
+  },
+
   encryptDouble: (message, recipientPublicKeyPem, myPublicKeyPem) => {
     try {
       const recipientKey = forge.pki.publicKeyFromPem(recipientPublicKeyPem);
-      const myKey = forge.pki.publicKeyFromPem(myPublicKeyPem);
-
       const forRecipient = forge.util.encode64(recipientKey.encrypt(message, 'RSA-OAEP'));
-      const forSender = forge.util.encode64(myKey.encrypt(message, 'RSA-OAEP'));
+      
+      let forSender = null;
+      if (myPublicKeyPem) {
+          const myKey = forge.pki.publicKeyFromPem(myPublicKeyPem);
+          forSender = forge.util.encode64(myKey.encrypt(message, 'RSA-OAEP'));
+      }
 
       return JSON.stringify({ r: forRecipient, s: forSender });
     } catch (e) {

@@ -77,6 +77,7 @@ class ProfileUpdate(BaseModel):
     skills_privacy: Optional[Literal["public", "connections", "private"]] = None
     experience_privacy: Optional[Literal["public", "connections", "private"]] = None
     education_privacy: Optional[Literal["public", "connections", "private"]] = None
+    share_view_history: Optional[bool] = None
 
 class ProfileResponse(BaseModel):
     id: int
@@ -100,6 +101,7 @@ class ProfileResponse(BaseModel):
     skills_privacy: str
     experience_privacy: str
     education_privacy: str
+    share_view_history: bool
     
     class Config:
         from_attributes = True
@@ -217,6 +219,51 @@ class AuditLogResponse(BaseModel):
     target_user: Optional[str]
     timestamp: datetime
     log_hash: str
+    
+    class Config:
+        from_attributes = True
+
+class ApplicationStatusUpdate(BaseModel):
+    status: str # Expecting: "Applied", "Reviewed", "Interview", "Offer", or "Rejected"
+
+# --- CONNECTION SCHEMAS ---
+
+class ConnectionRequest(BaseModel):
+    receiver_id: int
+
+class ConnectionUpdate(BaseModel):
+    request_id: int
+    status: str # "accepted" or "rejected"
+
+class ConnectionResponse(BaseModel):
+    id: int
+    user_id: int
+    connection_id: int
+    status: str
+    
+    class Config:
+        from_attributes = True
+
+class DirectoryUser(BaseModel):
+    id: int
+    full_name: str
+    headline: Optional[str] = None
+    role: str
+    
+    class Config:
+        from_attributes = True
+
+class UserProfilePublic(BaseModel):
+    id: int
+    full_name: str
+    role: str
+    headline: Optional[str] = None
+    location: Optional[str] = None
+    bio: Optional[str] = None
+    skills: Optional[str] = None
+    experience: Optional[str] = None
+    education: Optional[str] = None
+    mutual_connections: int 
     
     class Config:
         from_attributes = True
