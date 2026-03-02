@@ -189,6 +189,7 @@ class ApplicationResponse(BaseModel):
     cover_letter: Optional[str]
     status: str
     applied_at: datetime
+    match_score: int
     
     class Config:
         from_attributes = True

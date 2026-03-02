@@ -88,13 +88,15 @@ class Job(Base):
 
 class Application(Base):
     __tablename__ = "applications"
+    
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(Integer, index=True)
     applicant_id = Column(Integer, index=True)
     resume_id = Column(Integer)
     cover_letter = Column(String, nullable=True)
     status = Column(String, default="Applied")
-    applied_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    applied_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    match_score = Column(Integer, default=0) # ADD THIS LINE
 
 class Message(Base):
     __tablename__ = "messages"

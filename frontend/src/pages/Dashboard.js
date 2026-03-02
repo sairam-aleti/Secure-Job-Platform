@@ -321,7 +321,7 @@ function Dashboard() {
                             <span className="resume-name">
                                 {app.applicant_name}
                                 <span className="card-badge" style={{ marginLeft: '10px', background: app.match_score > 70 ? '#ecfdf5' : '#fff7ed', color: app.match_score > 70 ? '#065f46' : '#9a3412' }}>
-                                    {app.match_score}% Match
+                                    {app.match_score !== undefined ? app.match_score : 0}% Match
                                 </span>
                             </span>
                             <div className="resume-meta">

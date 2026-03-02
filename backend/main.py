@@ -608,22 +608,35 @@ def apply_to_job(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """JOB SEEKER ONLY: Apply to a job using an encrypted resume."""
+    """JOB SEEKER ONLY: Apply and SAVE the match score for the recruiter."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if user.role != "job_seeker":
-        raise HTTPException(status_code=403, detail="Only job seekers can apply for jobs")
+        raise HTTPException(status_code=403, detail="Only job seekers can apply")
     
-    # Verify the resume belongs to the user
-    resume = db.query(models.Resume).filter(models.Resume.id == app_data.resume_id, models.Resume.user_id == user.id).first()
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found or access denied")
+    job = db.query(models.Job).filter(models.Job.id == app_data.job_id).first()
+    resume = db.query(models.Resume).filter(
+        models.Resume.id == app_data.resume_id, 
+        models.Resume.user_id == user.id
+    ).first()
+    
+    if not job or not resume:
+        raise HTTPException(status_code=404, detail="Job or Resume not found")
 
+    # CALCULATE SCORE FOR THE RECORD
+    calculated_score = 0
+    if resume.extracted_skills:
+        # We pass the text and the job requirements to our parser
+        calculated_score = parser.calculate_match_score(resume.extracted_skills, job.skills_required)
+
+    # SAVE TO DATABASE
     new_app = models.Application(
         job_id=app_data.job_id,
         applicant_id=user.id,
         resume_id=app_data.resume_id,
-        cover_letter=app_data.cover_letter
+        cover_letter=app_data.cover_letter,
+        match_score=calculated_score # THIS SAVES IT PERMANENTLY
     )
+    
     db.add(new_app)
     db.commit()
     db.refresh(new_app)
@@ -659,12 +672,12 @@ def list_recruiter_applications(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """RECRUITER ONLY: View all applicants for your jobs."""
+    """RECRUITER ONLY: View all applicants with their match scores."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Query: Get applications for jobs owned by this recruiter
+    # Query for applications on jobs owned by this recruiter
     results = db.query(
         models.Application, 
         models.User.full_name.label("applicant_name"),
@@ -673,9 +686,12 @@ def list_recruiter_applications(
      .join(models.User, models.User.id == models.Application.applicant_id)\
      .filter(models.Job.recruiter_id == user.id).all()
     
-    # Manually build the list to ensure Pydantic accepts it
+        # Inside @app.get("/applications/recruiter")
     output = []
     for app_obj, name, title in results:
+        # DEEP DEBUG PRINT
+        print(f"DATABASE CHECK: App ID {app_obj.id} for {name} has score: {app_obj.match_score}%")
+        
         output.append({
             "id": app_obj.id,
             "job_id": app_obj.job_id,
@@ -685,7 +701,8 @@ def list_recruiter_applications(
             "status": app_obj.status,
             "applied_at": app_obj.applied_at,
             "applicant_name": name,
-            "job_title": title
+            "job_title": title,
+            "match_score": app_obj.match_score 
         })
     return output
 
