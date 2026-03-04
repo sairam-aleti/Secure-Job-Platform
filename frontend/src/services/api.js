@@ -27,6 +27,8 @@ export const authAPI = {
   verifyOTP: (data) => api.post('/verify-otp', data),
   updatePublicKey: (data) => api.post('/users/public-key', data),
   getUserPublicKey: (id) => api.get(`/users/${id}/public-key`),
+  requestPasswordReset: (email) => api.post('/password-reset/request', { email }),
+  confirmPasswordReset: (data) => api.post('/password-reset/confirm', data),
 };
 
 export const profileAPI = {
@@ -39,6 +41,7 @@ export const userAPI = {
   getDirectory: (q = '', page = 1) => api.get(`/users/directory?q=${q}&page=${page}`),
   getOtherProfile: (id) => api.get(`/users/${id}/profile`),
   getViewers: () => api.get('/profile/viewers'),
+  deleteAccount: (data) => api.post('/users/me/delete', data), 
 };
 
 // NEW: Connection Management

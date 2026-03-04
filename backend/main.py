@@ -608,11 +608,22 @@ def apply_to_job(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """JOB SEEKER ONLY: Apply and SAVE the match score for the recruiter."""
+    """JOB SEEKER ONLY: Apply with automated match score calculation."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if user.role != "job_seeker":
         raise HTTPException(status_code=403, detail="Only job seekers can apply")
     
+    # --- NEW: DUPLICATE PREVENTION CHECK ---
+    existing_app = db.query(models.Application).filter(
+        models.Application.job_id == app_data.job_id,
+        models.Application.applicant_id == user.id
+    ).first()
+    
+    if existing_app:
+        raise HTTPException(status_code=400, detail="You have already applied for this job")
+    # ---------------------------------------
+
+    # 1. Fetch Job and Resume
     job = db.query(models.Job).filter(models.Job.id == app_data.job_id).first()
     resume = db.query(models.Resume).filter(
         models.Resume.id == app_data.resume_id, 
@@ -622,20 +633,22 @@ def apply_to_job(
     if not job or not resume:
         raise HTTPException(status_code=404, detail="Job or Resume not found")
 
-    # CALCULATE SCORE FOR THE RECORD
+    # 2. INTELLIGENT MATCHING (The Bonus Logic)
     calculated_score = 0
     if resume.extracted_skills:
-        # We pass the text and the job requirements to our parser
         calculated_score = parser.calculate_match_score(resume.extracted_skills, job.skills_required)
 
-    # SAVE TO DATABASE
+    # 3. Create Application with the Score
     new_app = models.Application(
         job_id=app_data.job_id,
         applicant_id=user.id,
         resume_id=app_data.resume_id,
         cover_letter=app_data.cover_letter,
-        match_score=calculated_score # THIS SAVES IT PERMANENTLY
+        match_score=calculated_score 
     )
+    
+    # Audit Log for security
+    create_audit_log(db, "JOB_APPLICATION_SUBMITTED", user.email, f"Job ID: {job.id}")
     
     db.add(new_app)
     db.commit()
@@ -734,12 +747,13 @@ def send_message(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """Store an E2EE encrypted message (ciphertext only)."""
+    """Store an E2EE encrypted message and its digital signature."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     new_msg = models.Message(
         sender_id=user.id,
         receiver_id=msg.receiver_id,
-        encrypted_content=msg.encrypted_content
+        encrypted_content=msg.encrypted_content,
+        signature=msg.signature 
     )
     db.add(new_msg)
     db.commit()
@@ -1085,3 +1099,116 @@ def update_connection_status(
         
     db.commit()
     return {"message": f"Connection {data.status}"}
+
+# ACCOUNT DELETION
+
+@app.post("/users/me/delete")
+def secure_delete_account(
+    req: schemas.DeleteAccountRequest,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    HIGH RISK: Deletes the user account.
+    Requires OTP verification via Virtual Keyboard.
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # 1. Verify OTP (Same strict logic as registration)
+    db_otp = db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.is_used == False
+    ).order_by(models.OTP.created_at.desc()).first()
+    
+    if not db_otp or otp.is_otp_expired(db_otp.created_at):
+        raise HTTPException(status_code=400, detail="OTP invalid or expired. Request a new one.")
+        
+    if str(db_otp.code).strip() != str(req.otp_code).strip():
+        raise HTTPException(status_code=400, detail="Incorrect OTP code.")
+
+    # 2. Burn the OTP
+    db_otp.is_used = True
+    
+    # 3. Secure Audit Log BEFORE deletion
+    create_audit_log(db, "ACCOUNT_SELF_DELETED", user.email, "Account permanently removed")
+    
+    # 4. Perform Deletion
+    # In a real system, you'd cascade delete messages, resumes, etc.
+    db.delete(user)
+    db.commit()
+    
+    return {"message": "Account successfully deleted."}
+
+# --- PASSWORD RESET FLOW ---
+
+@app.post("/password-reset/request")
+async def request_password_reset(
+    req: schemas.PasswordResetRequest, 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Sends an OTP for password reset."""
+    user = db.query(models.User).filter(models.User.email == req.email).first()
+    if not user:
+        # Security: Return generic message to prevent email enumeration
+        return {"message": "If the email exists, an OTP has been sent."}
+    
+    # Invalidate old OTPs
+    db.query(models.OTP).filter(
+        models.OTP.user_id == user.id, 
+        models.OTP.is_used == False
+    ).update({"is_used": True})
+    
+    otp_code = otp.generate_otp()
+    new_otp = models.OTP(user_id=user.id, code=otp_code, created_at=datetime.now(timezone.utc))
+    db.add(new_otp)
+    db.commit()
+
+    # Send Real Email
+    message = MessageSchema(
+        subject="FortKnox - Password Reset Code",
+        recipients=[user.email],
+        body=f"Your password reset code is: {otp_code}\n\nDo not share this code with anyone. It expires in 10 minutes.",
+        subtype=MessageType.plain
+    )
+    background_tasks.add_task(fastmail.send_message, message)
+    
+    # Secure Audit
+    create_audit_log(db, "PASSWORD_RESET_REQUESTED", user.email, "User initiated password reset")
+    
+    return {"message": "If the email exists, an OTP has been sent."}
+
+
+@app.post("/password-reset/confirm")
+def confirm_password_reset(req: schemas.PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Verifies OTP and updates the password."""
+    user = db.query(models.User).filter(models.User.email == req.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # Verify OTP
+    db_otp = db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.is_used == False
+    ).order_by(models.OTP.created_at.desc()).first()
+    
+    if not db_otp or otp.is_otp_expired(db_otp.created_at):
+        raise HTTPException(status_code=400, detail="OTP invalid or expired.")
+        
+    if str(db_otp.code).strip() != str(req.otp_code).strip():
+        raise HTTPException(status_code=400, detail="Incorrect OTP.")
+
+    # Apply new password
+    schemas.UserCreate.password_strength(req.new_password) # Enforce strength rules
+    user.hashed_password = security.hash_password(req.new_password)
+    
+    # Burn OTP & remove any lockouts
+    db_otp.is_used = True
+    user.failed_otp_attempts = 0
+    user.locked_until = None
+    
+    # Secure Audit
+    create_audit_log(db, "PASSWORD_CHANGED", user.email, "Password reset via OTP")
+    
+    db.commit()
+    return {"message": "Password has been successfully reset."}

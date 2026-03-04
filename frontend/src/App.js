@@ -13,6 +13,7 @@ import Apply from './pages/Apply';
 import Chat from './pages/Chat';
 import Network from './pages/Network';
 import ViewProfile from './pages/ViewProfile';
+import ForgotPassword from './pages/ForgotPassword';
 import './App.css';
 
 function App() {
@@ -33,6 +34,7 @@ function App() {
         <Route path="/chat/:receiverId" element={<Chat />} />
         <Route path="/network" element={<Network />} />
         <Route path="/user-profile/:userId" element={<ViewProfile />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
       </Routes>
     </Router>
   );

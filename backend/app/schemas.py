@@ -207,12 +207,14 @@ class PublicKeyUpdate(BaseModel):
 class MessageCreate(BaseModel):
     receiver_id: int
     encrypted_content: str
+    signature: Optional[str] = None 
 
 class MessageResponse(BaseModel):
     id: int
     sender_id: int
     receiver_id: int
     encrypted_content: str
+    signature: Optional[str] = None 
     timestamp: datetime
 
     class Config:
@@ -235,7 +237,7 @@ class AuditLogResponse(BaseModel):
         from_attributes = True
 
 class ApplicationStatusUpdate(BaseModel):
-    status: str # Expecting: "Applied", "Reviewed", "Interview", "Offer", or "Rejected"
+    status: str 
 
 # --- CONNECTION SCHEMAS ---
 
@@ -244,7 +246,7 @@ class ConnectionRequest(BaseModel):
 
 class ConnectionUpdate(BaseModel):
     request_id: int
-    status: str # "accepted" or "rejected"
+    status: str 
 
 class ConnectionResponse(BaseModel):
     id: int
@@ -278,3 +280,14 @@ class UserProfilePublic(BaseModel):
     
     class Config:
         from_attributes = True
+
+class DeleteAccountRequest(BaseModel):
+    otp_code: str
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    otp_code: str
+    new_password: str

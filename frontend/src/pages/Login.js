@@ -90,7 +90,7 @@ function Login() {
               />
             </div>
 
-            <div className="form-group">
+            <div className="form-group" style={{ marginBottom: '5px' }}>
               <label>Password</label>
               <input
                 type="password"
@@ -100,6 +100,12 @@ function Login() {
                 required
                 placeholder="Enter your password"
               />
+            </div>
+            
+            <div style={{ textAlign: 'right', marginBottom: '20px' }}>
+              <a href="/forgot-password" style={{ fontSize: '13px', color: '#3461c7', textDecoration: 'none', fontWeight: '500' }}>
+                Forgot Password?
+              </a>
             </div>
 
             {error && <div className="error-message">{error}</div>}

@@ -24,11 +24,15 @@ function Chat() {
 
   const initializeChat = async () => {
     try {
-      // 1. Get My Profile
       let profRes = await profileAPI.getProfile();
+      
+      if (!profRes.data.public_key && localStorage.getItem('encrypted_private_key')) {
+          console.log("Syncing identity keys...");
+          await new Promise(r => setTimeout(r, 1000)); 
+          profRes = await profileAPI.getProfile();
+      }
       setProfile(profRes.data);
 
-      // 2. Unlock My Private Key
       const encryptedKeyJson = localStorage.getItem('encrypted_private_key');
       const password = sessionStorage.getItem('user_pwd');
       
@@ -39,7 +43,6 @@ function Chat() {
         console.warn("Private Key locked. Messages will be encrypted but you cannot read them.");
       }
 
-      // 3. Get Recipient's Public Key
       const keyRes = await authAPI.getUserPublicKey(receiverId);
       setReceiverKey(keyRes.data.public_key);
 
@@ -68,19 +71,18 @@ function Chat() {
     if (!newMessage.trim() || isSending) return;
 
     if (!receiverKey) {
-        alert("Cannot send: Recipient has no encryption key.");
+        alert("Cannot send: Recipient has no secure identity.");
         return;
     }
 
     setIsSending(true);
     try {
-      // FIX: Derive public key locally from private key (more reliable than server fetch)
       let myPublicKey = profile?.public_key;
       if (!myPublicKey && myPrivateKey) {
           myPublicKey = cryptoService.getPublicKeyFromPrivate(myPrivateKey);
       }
 
-      // Encrypt
+      // 1. ENCRYPT
       const doubleCiphertext = cryptoService.encryptDouble(
         newMessage, 
         receiverKey, 
@@ -89,10 +91,17 @@ function Chat() {
       
       if (!doubleCiphertext) throw new Error("Encryption failed");
 
-      // Send
+      // 2. SIGN (PKI Bonus) - We sign the original text using OUR private key
+      let digitalSignature = null;
+      if (myPrivateKey) {
+          digitalSignature = cryptoService.signMessage(newMessage, myPrivateKey);
+      }
+
+      // 3. SEND
       await messageAPI.sendMessage({
         receiver_id: parseInt(receiverId),
-        encrypted_content: doubleCiphertext
+        encrypted_content: doubleCiphertext,
+        signature: digitalSignature // Send the signature to the server
       });
       
       setNewMessage('');
@@ -108,11 +117,22 @@ function Chat() {
   const renderMessage = (msg) => {
     const isMe = msg.sender_id === profile?.id;
     let content = "[Encrypted Content]";
+    let isVerified = false;
 
+    // Decrypt the message
     if (myPrivateKey) {
       content = cryptoService.decryptMessage(msg.encrypted_content, myPrivateKey);
+      
+      // If we successfully decrypted, let's verify the signature
+      if (content !== "[Unable to decrypt: Key mismatch]" && msg.signature) {
+          // If I sent it, verify with MY public key. If they sent it, verify with THEIR public key.
+          const keyToVerifyWith = isMe ? profile?.public_key : receiverKey;
+          if (keyToVerifyWith) {
+             isVerified = cryptoService.verifySignature(content, msg.signature, keyToVerifyWith);
+          }
+      }
     } else {
-      content = "🔒 key locked";
+      content = "[Decryption Error: Private Key Locked]";
     }
 
     return (
@@ -129,8 +149,10 @@ function Chat() {
         boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
       }}>
         <div style={{ fontSize: '14px' }}>{content}</div>
-        <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '5px', textAlign: 'right' }}>
-          {new Date(msg.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+        <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '5px', display: 'flex', justifyContent: 'flex-end', gap: '5px', alignItems: 'center' }}>
+          {/* Show verified badge if signature is valid */}
+          {isVerified && <span title="Digital Signature Verified" style={{ color: isMe ? '#e0f2fe' : '#059669' }}>Verified</span>}
+          <span>{new Date(msg.timestamp).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
       </div>
     );
@@ -151,7 +173,7 @@ function Chat() {
             <span className="card-badge" style={{ background: '#ecfdf5', color: '#065f46' }}>E2EE Active</span>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '28px' }}>
-            {messages.length === 0 ? <p style={{ textAlign: 'center', color: '#6b7280' }}>No messages recorded.</p> : messages.map(renderMessage)}
+            {messages.length === 0 ? <p style={{ textAlign: 'center', color: '#6b7280', marginTop: '20%' }}>No messages recorded.</p> : messages.map(renderMessage)}
             <div ref={messagesEndRef} />
           </div>
           <form onSubmit={handleSendMessage} style={{ padding: '20px 28px', borderTop: '1px solid #f3f4f6', display: 'flex', gap: '12px' }}>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { jobAPI, profileAPI } from '../services/api';
+import { jobAPI, profileAPI, applicationAPI} from '../services/api';
 import './Dashboard.css';
 
 function JobBoard() {
@@ -9,21 +9,29 @@ function JobBoard() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState('');
+  const [appliedJobIds, setAppliedJobIds] = useState([]); 
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+    const fetchData = async () => {
     try {
-      console.log("Fetching Job Board data...");
       const profileRes = await profileAPI.getProfile();
       setProfile(profileRes.data);
 
       const jobsRes = await jobAPI.list();
-      console.log("Jobs received from backend:", jobsRes.data); // DEBUG LOG
       setJobs(jobsRes.data);
+
+      // NEW: If job seeker, fetch their applications to disable buttons
+      if (profileRes.data.role === 'job_seeker') {
+         // Note: You need to import applicationAPI at the top if it's not there!
+         const appsRes = await applicationAPI.myApplications();
+         const ids = appsRes.data.map(app => app.job_id);
+         setAppliedJobIds(ids);
+      }
+
     } catch (err) {
       console.error('Job Board fetch error:', err);
       setError('Failed to load jobs. Please try again.');
@@ -128,15 +136,22 @@ function JobBoard() {
                   <span style={{ fontSize: '13px', color: '#9ca3af' }}>
                     Posted on: {new Date(job.posted_at).toLocaleDateString()}
                   </span>
-                  {profile?.role === 'job_seeker' ? (
-                    <button className="btn-upload" style={{ padding: '8px 24px' }} onClick={() => navigate(`/apply/${job.id}`)}>
-                       Apply Now
-                    </button>
-                  ) : (
-                    <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
-                      Viewing as {profile?.role}
-                    </span>
-                  )}
+                                {profile?.role === 'job_seeker' ? (
+                // NEW: Check if already applied
+                appliedJobIds.includes(job.id) ? (
+                  <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
+                    Already Applied
+                  </span>
+                ) : (
+                  <button className="btn-upload" style={{ padding: '8px 24px' }} onClick={() => navigate(`/apply/${job.id}`)}>
+                    Apply Now
+                  </button>
+                )
+              ) : (
+                <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
+                  Viewing as {profile?.role}
+                </span>
+              )}
                 </div>
               </div>
             ))}

@@ -36,7 +36,6 @@ const cryptoService = {
     } catch (e) { return null; }
   },
 
-  // NEW: Helper to get public key from private key (avoids network call)
   getPublicKeyFromPrivate: (privateKeyPem) => {
     try {
       const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
@@ -77,6 +76,33 @@ const cryptoService = {
       }
     } catch (e) {
       return "[Unable to decrypt: Key mismatch]";
+    }
+  },
+
+  // --- NEW: PKI DIGITAL SIGNATURES ---
+
+  signMessage: (message, privateKeyPem) => {
+    try {
+      const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+      const md = forge.md.sha256.create();
+      md.update(message, 'utf8');
+      const signature = privateKey.sign(md);
+      return forge.util.encode64(signature);
+    } catch (e) {
+      console.error("Signing failed", e);
+      return null;
+    }
+  },
+
+  verifySignature: (message, signature64, publicKeyPem) => {
+    try {
+      const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
+      const signature = forge.util.decode64(signature64);
+      const md = forge.md.sha256.create();
+      md.update(message, 'utf8');
+      return publicKey.verify(md.digest().bytes(), signature);
+    } catch (e) {
+      return false; // Signature invalid or tampered
     }
   }
 };

@@ -103,7 +103,10 @@ class Message(Base):
     id = Column(Integer, primary_key=True, index=True)
     sender_id = Column(Integer, index=True)
     receiver_id = Column(Integer, index=True)
-    encrypted_content = Column(String) # Ciphertext stored on server
+    encrypted_content = Column(String)
+    
+    signature = Column(String, nullable=True) 
+    
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class AuditLog(Base):
@@ -132,4 +135,5 @@ class ProfileView(Base):
     viewer_id = Column(Integer, index=True) # Who looked
     target_id = Column(Integer, index=True) # At whom
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 
