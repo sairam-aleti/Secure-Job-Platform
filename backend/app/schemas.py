@@ -68,7 +68,8 @@ class ResumeResponse(BaseModel):
     original_filename: str
     file_size: int
     uploaded_at: datetime
-    
+    signature: Optional[str] = None 
+
     class Config:
         from_attributes = True
 

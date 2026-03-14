@@ -16,7 +16,7 @@ function Dashboard() {
   const [file, setFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState('');
   const [recommendations, setRecommendations] = useState([]); 
-  const [viewers, setViewers] = useState([]); // State for profile viewers
+  const [viewers, setViewers] = useState([]); 
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -52,7 +52,7 @@ function Dashboard() {
       // FETCH SYSTEM DATA (For everyone except admin)
       if (response.data.role !== 'admin') {
         fetchMyConnections();
-        fetchProfileViewers(); // NOW ACTIVATED: Fetch who looked at your profile
+        fetchProfileViewers(); 
       }
 
     } catch (err) {
@@ -124,7 +124,9 @@ function Dashboard() {
       const res = await userAPI.getDirectory();
       const linked = res.data.filter(u => u.connection_status === 'accepted');
       setConnections(linked);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error("Failed to fetch connections", err); 
+    }
   };
   
   const fetchProfileViewers = async () => {
@@ -225,7 +227,7 @@ function Dashboard() {
         <div className="stats-row">
           <div className="stat-item">
             <div className="stat-label">Email</div>
-            <div className="stat-value" style={{ fontSize: '15px' }}>{profile?.email}</div>
+            <div className="stat-value" style={{ fontSize: '15px', wordBreak: 'break-all' }}>{profile?.email}</div>
           </div>
           <div className="stat-item">
             <div className="stat-label">Role</div>
@@ -410,6 +412,37 @@ function Dashboard() {
               {uploadStatus && <p className="upload-status">{uploadStatus}</p>}
             </div>
 
+            {/* --- YOUR RESUMES SECTION --- */}
+            <div className="card" style={{ marginTop: '20px' }}>
+              <div className="card-header">
+                <h3>Your Resumes</h3>
+                <span className="card-badge" style={{ background: '#ecfdf5', color: '#065f46' }}>{resumes.length} file{resumes.length !== 1 ? 's' : ''}</span>
+              </div>
+              {resumes.length === 0 ? (
+                <p style={{ color: '#9ca3af', textAlign: 'center', padding: '24px 0' }}>No resumes uploaded yet.</p>
+              ) : (
+                <ul className="resume-list">
+                  {resumes.map((resume) => (
+                    <li key={resume.id} className="resume-item">
+                      <div className="resume-info">
+                        <div className="resume-icon">📄</div>
+                        <div className="resume-details">
+                          <span className="resume-name">{resume.original_filename}</span>
+                          <div className="resume-meta">
+                            <span className="resume-size">{(resume.file_size / 1024).toFixed(1)} KB</span>
+                            <span className="resume-date">{new Date(resume.uploaded_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button className="download-btn" onClick={() => handleDownload(resume.id, resume.original_filename)}>
+                        Download
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             {applications.length > 0 && (
               <div className="card">
                 <div className="card-header"><h3>Your Applications</h3></div>
@@ -429,7 +462,7 @@ function Dashboard() {
           </>
         )}
 
-        {/* --- RECENT VIEWERS SECTION (Requirement 2A) --- */}
+        {/* --- RECENT VIEWERS SECTION --- */}
         {profile?.role !== 'admin' && (
           <div className="card">
             <div className="card-header">
@@ -453,7 +486,7 @@ function Dashboard() {
           </div>
         )}
 
-        {/* --- YOUR NETWORK SECTION --- */}
+        {/* --- YOUR NETWORK SECTION WITH REMOVE BUTTON --- */}
         {profile?.role !== 'admin' && (
           <div className="card">
             <div className="card-header">
@@ -478,13 +511,33 @@ function Dashboard() {
                         </span>
                       </div>
                     </div>
-                    <button 
-                      className="download-btn" 
-                      style={{ borderColor: '#667eea', color: '#667eea' }}
-                      onClick={() => navigate(`/chat/${conn.id}`)}
-                    >
-                      Message
-                    </button>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button 
+                        className="download-btn" 
+                        style={{ borderColor: '#667eea', color: '#667eea' }}
+                        onClick={() => navigate(`/chat/${conn.id}`)}
+                      >
+                        Message
+                      </button>
+                      
+                      {/* NEW: Remove Connection Button */}
+                      <button 
+                        className="btn-delete" 
+                        onClick={async () => {
+                          if(window.confirm(`Are you sure you want to remove ${conn.full_name} from your network?`)) {
+                             // The backend 'reject' endpoint successfully deletes the connection row
+                             try {
+                               await connectionAPI.updateRequest(conn.request_id, 'rejected');
+                               fetchMyConnections();
+                             } catch (err) {
+                               alert('Failed to remove connection.');
+                             }
+                          }
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

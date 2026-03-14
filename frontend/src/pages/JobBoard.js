@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { jobAPI, profileAPI, applicationAPI} from '../services/api';
+import { jobAPI, profileAPI, applicationAPI } from '../services/api';
 import './Dashboard.css';
 
 function JobBoard() {
@@ -8,25 +8,26 @@ function JobBoard() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('All'); // NEW: Type Filter
+  const [filterLocation, setFilterLocation] = useState('All'); // NEW: Location Filter
   const [error, setError] = useState('');
-  const [appliedJobIds, setAppliedJobIds] = useState([]); 
+  const [appliedJobIds, setAppliedJobIds] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchData();
   }, []);
 
-    const fetchData = async () => {
+  const fetchData = async () => {
     try {
+      console.log("Fetching Job Board data...");
       const profileRes = await profileAPI.getProfile();
       setProfile(profileRes.data);
 
       const jobsRes = await jobAPI.list();
       setJobs(jobsRes.data);
 
-      // NEW: If job seeker, fetch their applications to disable buttons
       if (profileRes.data.role === 'job_seeker') {
-         // Note: You need to import applicationAPI at the top if it's not there!
          const appsRes = await applicationAPI.myApplications();
          const ids = appsRes.data.map(app => app.job_id);
          setAppliedJobIds(ids);
@@ -41,15 +42,31 @@ function JobBoard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user_email');
+    localStorage.clear();
+    sessionStorage.clear();
     navigate('/login');
   };
 
-  const filteredJobs = jobs.filter(job => 
-    job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    job.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // --- NEW: ADVANCED FILTERING LOGIC ---
+  const filteredJobs = jobs.filter(job => {
+    // 1. Keyword Match
+    const matchesSearch = job.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          job.description.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // 2. Type Match (Full-time, Internship, etc.)
+    const matchesType = filterType === 'All' || job.employment_type === filterType;
+    
+    // 3. Location Match (Remote vs On-Site)
+    // Simple logic: if filter is "Remote", job location must contain "Remote"
+    let matchesLocation = true;
+    if (filterLocation === 'Remote') {
+        matchesLocation = job.location.toLowerCase().includes('remote');
+    } else if (filterLocation === 'On-site') {
+        matchesLocation = !job.location.toLowerCase().includes('remote');
+    }
+
+    return matchesSearch && matchesType && matchesLocation;
+  });
 
   if (loading) {
     return (
@@ -72,7 +89,7 @@ function JobBoard() {
           <a href="/dashboard">Dashboard</a>
           <a href="/jobs">Job Board</a>
           {profile?.role !== 'recruiter' && <a href="/profile">Profile</a>}
-          {profile?.role === 'admin' && <a href="/admin">Admin</a>}
+          {profile?.role === 'admin' && <a href="/admin">Admin Panel</a>}
         </div>
         <div className="nav-actions">
           <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
@@ -82,22 +99,41 @@ function JobBoard() {
       <div className="page-hero">
         <div className="page-hero-inner">
           <h2>Job Board</h2>
-          <p>Public listings for all open positions</p>
+          <p>Explore career opportunities in security and technology</p>
         </div>
       </div>
 
       <main className="app-content">
         {error && <div className="error-message">{error}</div>}
 
-        <div className="card">
-          <div className="form-group" style={{ marginBottom: 0 }}>
+        {/* --- NEW: ADVANCED SEARCH & FILTER BAR --- */}
+        <div className="card" style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="form-group" style={{ marginBottom: 0, flex: '2' }}>
             <label>Search Opportunities</label>
             <input 
               type="text" 
-              placeholder="Search by job title or keywords..." 
+              placeholder="Keywords, skills, or titles..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0, flex: '1' }}>
+            <label>Job Type</label>
+            <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+              <option value="All">All Types</option>
+              <option value="Full-time">Full-time</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Internship">Internship</option>
+              <option value="Contract">Contract</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0, flex: '1' }}>
+            <label>Location</label>
+            <select value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)}>
+              <option value="All">Anywhere</option>
+              <option value="Remote">Remote Only</option>
+              <option value="On-site">On-site Only</option>
+            </select>
           </div>
         </div>
 
@@ -107,7 +143,7 @@ function JobBoard() {
 
         {filteredJobs.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-            <p style={{ color: '#6b7280' }}>No public jobs found. If you just posted a job, try refreshing.</p>
+            <p style={{ color: '#6b7280' }}>No jobs found matching your filters.</p>
           </div>
         ) : (
           <div className="job-grid" style={{ display: 'grid', gap: '20px' }}>
@@ -136,22 +172,22 @@ function JobBoard() {
                   <span style={{ fontSize: '13px', color: '#9ca3af' }}>
                     Posted on: {new Date(job.posted_at).toLocaleDateString()}
                   </span>
-                                {profile?.role === 'job_seeker' ? (
-                // NEW: Check if already applied
-                appliedJobIds.includes(job.id) ? (
-                  <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
-                    Already Applied
-                  </span>
-                ) : (
-                  <button className="btn-upload" style={{ padding: '8px 24px' }} onClick={() => navigate(`/apply/${job.id}`)}>
-                    Apply Now
-                  </button>
-                )
-              ) : (
-                <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
-                  Viewing as {profile?.role}
-                </span>
-              )}
+                  
+                  {profile?.role === 'job_seeker' ? (
+                    appliedJobIds.includes(job.id) ? (
+                      <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
+                        Already Applied
+                      </span>
+                    ) : (
+                      <button className="btn-upload" style={{ padding: '8px 24px' }} onClick={() => navigate(`/apply/${job.id}`)}>
+                        Apply Now
+                      </button>
+                    )
+                  ) : (
+                    <span className="card-badge" style={{ background: '#f3f4f6', color: '#6b7280' }}>
+                      Viewing as {profile?.role}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

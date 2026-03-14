@@ -15,6 +15,16 @@ import base64
 import hashlib
 from app import parser
 
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import serialization
+
+# In a real-world enterprise app, these keys are stored in an AWS KMS or Hardware Security Module.
+# For this project, we generate a persistent key for the server lifecycle.
+SERVER_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+SERVER_PUBLIC_KEY = SERVER_PRIVATE_KEY.public_key()
+# ------------------------------------------------------
+
 def create_audit_log(db: Session, action: str, admin_email: str, target: str = None):
     last_log = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
     prev_hash = last_log.log_hash if last_log else "0"
@@ -34,6 +44,7 @@ def create_audit_log(db: Session, action: str, admin_email: str, target: str = N
         timestamp=now # Explicitly set the aware timestamp
     )
     db.add(new_log)
+
 
 # Create all database tables
 models.Base.metadata.create_all(bind=engine)
@@ -267,8 +278,9 @@ def upload_resume(
     current_user_email: str = Depends(auth.get_current_user)
 ):
     """
-    SECURE RESUME UPLOAD WITH PARSING
+    SECURE RESUME UPLOAD WITH PARSING AND PKI
     - Parses text for matching before encryption
+    - Signs original file with Server Private Key
     - Encrypts file with AES-256-GCM for storage
     """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
@@ -288,7 +300,7 @@ def upload_resume(
     if file_size > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large")
 
-    # --- NEW: PARSE TEXT FOR INTELLIGENT MATCHING ---
+    # --- PARSE TEXT FOR INTELLIGENT MATCHING ---
     extracted_text = ""
     if file_extension == ".pdf":
         extracted_text = parser.extract_text_from_pdf(file_content)
@@ -302,8 +314,20 @@ def upload_resume(
     
     with open(file_path, "wb") as f:
         f.write(encrypted_data)
+        
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(file_content)
+    file_hash = digest.finalize()
     
-    # Save metadata AND extracted skills
+    signature_bytes = SERVER_PRIVATE_KEY.sign(
+        file_hash,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+        hashes.SHA256()
+    )
+    signature_b64 = base64.b64encode(signature_bytes).decode('utf-8')
+    # ----------------------------------------------------
+    
+    # Save metadata AND extracted skills AND PKI signature
     resume = models.Resume(
         user_id=user.id,
         original_filename=file.filename,
@@ -311,7 +335,8 @@ def upload_resume(
         encryption_key=encryption.key_to_string(encryption_key),
         nonce=base64.b64encode(nonce).decode('utf-8'),
         file_size=file_size,
-        extracted_skills=extracted_text # NEW: Storing text for the recommendation engine
+        extracted_skills=extracted_text,
+        signature=signature_b64 # NEW: Storing the signature
     )
     
     db.add(resume)
@@ -329,6 +354,7 @@ def download_resume(
     """
     SECURE RESUME DOWNLOAD
     - Access control: Owner, Admins, or Recruiters with a valid application.
+    - NEW: PKI Integrity Verification to detect tampering.
     """
     from fastapi.responses import Response
     
@@ -338,20 +364,13 @@ def download_resume(
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
     
-    # --- SECURITY CHECK LOGIC ---
     allowed = False
     
-    # 1. Is the user the owner?
     if resume.user_id == user.id:
         allowed = True
-    
-    # 2. Is the user an Admin?
     elif user.role == "admin":
         allowed = True
-        
-    # 3. Is the user a Recruiter who received an application with this resume?
     elif user.role == "recruiter":
-        # We must explicitly define the JOIN condition: models.Job.id == models.Application.job_id
         application = db.query(models.Application).join(
             models.Job, models.Job.id == models.Application.job_id
         ).filter(
@@ -363,19 +382,45 @@ def download_resume(
 
     if not allowed:
         raise HTTPException(status_code=403, detail="Access denied: You are not authorized to view this resume")
-    # --- END SECURITY CHECK ---
-
-    # Read and Decrypt (Same logic as before)
+    
+    # 1. Read Encrypted File
     file_path = os.path.join("uploads", resume.encrypted_filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    
     with open(file_path, "rb") as f:
         encrypted_data = f.read()
     
+    # 2. Decrypt File
     try:
         encryption_key = encryption.string_to_key(resume.encryption_key)
         nonce = base64.b64decode(resume.nonce.encode('utf-8'))
         decrypted_data = encryption.decrypt_file(encrypted_data, encryption_key, nonce)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Decryption failed.")
+        
+        if resume.signature:
+            try:
+                digest = hashes.Hash(hashes.SHA256())
+                digest.update(decrypted_data)
+                file_hash = digest.finalize()
+                
+                sig_bytes = base64.b64decode(resume.signature.encode('utf-8'))
+                
+                # This will raise an exception if the signature is invalid
+                SERVER_PUBLIC_KEY.verify(
+                    sig_bytes,
+                    file_hash,
+                    padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+                    hashes.SHA256()
+                )
+                print(f"🔒 PKI VERIFIED: Resume {resume_id} integrity confirmed.")
+            except Exception as e:
+                print(f"🚨 PKI ALERT: Resume {resume_id} failed integrity check! {e}")
+                raise HTTPException(status_code=500, detail="CRITICAL: Resume signature verification failed. File has been tampered with.")
+                  
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e 
+        raise HTTPException(status_code=500, detail="Decryption failed. File may be corrupted.")
+    
     
     return Response(
         content=decrypted_data,

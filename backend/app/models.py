@@ -57,7 +57,11 @@ class Resume(Base):
     encryption_key = Column(String)
     nonce = Column(String)
     file_size = Column(Integer)
-    extracted_skills = Column(String, nullable=True) # Non-sensitive keywords for matching
+    extracted_skills = Column(String, nullable=True) 
+    
+    # NEW: PKI Signature (Requirement H)
+    signature = Column(String, nullable=True) 
+    
     uploaded_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 class Company(Base):
