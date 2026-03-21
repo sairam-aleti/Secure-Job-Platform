@@ -1,11 +1,14 @@
-from pydantic import BaseModel, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from datetime import datetime
 from typing import Optional, Literal
+import os
+import re
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-    full_name: str
+    full_name: str = Field(max_length=100)
+    # Admin can register (professor requirement) but needs superadmin approval for destructive actions
     role: Literal["job_seeker", "recruiter", "admin"]
 
     @field_validator('email')
@@ -14,10 +17,11 @@ class UserCreate(BaseModel):
         allowed_domains = ['gmail.com', 'iiitd.ac.in']
         domain = v.split('@')[-1].lower()
         
-        # Bypass for our existing test accounts
-        test_accounts = ['superadmin@secure.com', 'recruiter@tech.com', 'final@test.com']
-        if v.lower() in test_accounts:
-            return v
+        # SECURITY: Test accounts gated behind environment variable
+        if os.environ.get('ALLOW_TEST_ACCOUNTS', 'false').lower() == 'true':
+            test_accounts = ['superadmin@secure.com', 'recruiter@tech.com', 'final@test.com']
+            if v.lower() in test_accounts:
+                return v
             
         if domain not in allowed_domains:
             raise ValueError('Registration is only allowed for @gmail.com or @iiitd.ac.in domains')
@@ -32,7 +36,17 @@ class UserCreate(BaseModel):
             raise ValueError('Password must contain at least one number')
         if not any(char.isupper() for char in v):
             raise ValueError('Password must contain at least one uppercase letter')
+        if not any(char in '!@#$%^&*()_+-=[]{}|;:,.<>?' for char in v):
+            raise ValueError('Password must contain at least one special character')
         return v
+
+    @field_validator('full_name')
+    @classmethod
+    def validate_full_name(cls, v):
+        # SECURITY: Prevent script injection in names
+        if not re.match(r'^[a-zA-Z\s\.\-\']+$', v):
+            raise ValueError('Full name can only contain letters, spaces, dots, hyphens, and apostrophes')
+        return v.strip()
 
 class UserResponse(BaseModel):
     id: int
@@ -57,11 +71,11 @@ class OTPRequest(BaseModel):
 
 class OTPVerify(BaseModel):
     email: EmailStr
-    otp_code: str
+    otp_code: str = Field(min_length=6, max_length=6)
 
 class OTPResponse(BaseModel):
     message: str
-    dev_otp: Optional[str] = None  # Only populated in dev mode
+    dev_otp: Optional[str] = None
 
 class ResumeResponse(BaseModel):
     id: int
@@ -74,12 +88,12 @@ class ResumeResponse(BaseModel):
         from_attributes = True
 
 class ProfileUpdate(BaseModel):
-    headline: Optional[str] = None
-    location: Optional[str] = None
-    bio: Optional[str] = None
-    skills: Optional[str] = None  # JSON string: '["Python", "FastAPI"]'
-    experience: Optional[str] = None  # JSON string
-    education: Optional[str] = None  # JSON string
+    headline: Optional[str] = Field(default=None, max_length=200)
+    location: Optional[str] = Field(default=None, max_length=100)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+    skills: Optional[str] = Field(default=None, max_length=1000)
+    experience: Optional[str] = Field(default=None, max_length=5000)
+    education: Optional[str] = Field(default=None, max_length=5000)
     
     # Privacy settings for each field
     headline_privacy: Optional[Literal["public", "connections", "private"]] = None
@@ -134,10 +148,10 @@ class AdminAction(BaseModel):
 
 # --- COMPANY SCHEMAS ---
 class CompanyCreate(BaseModel):
-    name: str
-    description: str
-    location: str
-    website: Optional[str] = None
+    name: str = Field(max_length=200)
+    description: str = Field(max_length=5000)
+    location: str = Field(max_length=200)
+    website: Optional[str] = Field(default=None, max_length=500)
 
 class CompanyResponse(BaseModel):
     id: int
@@ -153,12 +167,12 @@ class CompanyResponse(BaseModel):
 # --- JOB SCHEMAS ---
 class JobCreate(BaseModel):
     company_id: int
-    title: str
-    description: str
-    location: str
-    employment_type: str  # "Full-time", "Internship"
-    skills_required: str  # '["Python"]'
-    salary_range: Optional[str] = None
+    title: str = Field(max_length=200)
+    description: str = Field(max_length=10000)
+    location: str = Field(max_length=200)
+    employment_type: Literal["Full-time", "Part-time", "Internship", "Contract", "Remote"]
+    skills_required: str = Field(max_length=2000)
+    salary_range: Optional[str] = Field(default=None, max_length=100)
     deadline: Optional[datetime] = None
 
 class JobResponse(BaseModel):
@@ -180,7 +194,7 @@ class JobResponse(BaseModel):
 class ApplicationCreate(BaseModel):
     job_id: int
     resume_id: int
-    cover_letter: Optional[str] = None
+    cover_letter: Optional[str] = Field(default=None, max_length=5000)
 
 class ApplicationResponse(BaseModel):
     id: int
@@ -203,12 +217,12 @@ class ApplicationDetail(ApplicationResponse):
 # --- MESSAGING SCHEMAS ---
 
 class PublicKeyUpdate(BaseModel):
-    public_key: str
+    public_key: str = Field(max_length=5000)
 
 class MessageCreate(BaseModel):
     receiver_id: int
-    encrypted_content: str
-    signature: Optional[str] = None 
+    encrypted_content: str = Field(max_length=50000)
+    signature: Optional[str] = Field(default=None, max_length=5000)
 
 class MessageResponse(BaseModel):
     id: int
@@ -221,11 +235,6 @@ class MessageResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Extended response for showing names in the dashboard
-class ApplicationDetail(ApplicationResponse):
-    applicant_name: str
-    job_title: str
-
 class AuditLogResponse(BaseModel):
     id: int
     action: str
@@ -237,17 +246,19 @@ class AuditLogResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# SECURITY FIX: Restrict status to valid values only
 class ApplicationStatusUpdate(BaseModel):
-    status: str 
+    status: Literal["Applied", "Reviewed", "Interview", "Offer", "Rejected"]
 
 # --- CONNECTION SCHEMAS ---
 
 class ConnectionRequest(BaseModel):
     receiver_id: int
 
+# SECURITY FIX: Restrict to valid status values  
 class ConnectionUpdate(BaseModel):
     request_id: int
-    status: str 
+    status: Literal["accepted", "rejected"]
 
 class ConnectionResponse(BaseModel):
     id: int
@@ -283,12 +294,52 @@ class UserProfilePublic(BaseModel):
         from_attributes = True
 
 class DeleteAccountRequest(BaseModel):
-    otp_code: str
+    otp_code: str = Field(min_length=6, max_length=6)
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 class PasswordResetConfirm(BaseModel):
     email: EmailStr
-    otp_code: str
+    otp_code: str = Field(min_length=6, max_length=6)
     new_password: str
+
+    # SECURITY FIX: Enforce password strength at schema level
+    @field_validator('new_password')
+    @classmethod
+    def password_strength(cls, v):
+        if len(v) < 12:
+            raise ValueError('Password must be at least 12 characters')
+        if not any(char.isdigit() for char in v):
+            raise ValueError('Password must contain at least one number')
+        if not any(char.isupper() for char in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not any(char in '!@#$%^&*()_+-=[]{}|;:,.<>?' for char in v):
+            raise ValueError('Password must contain at least one special character')
+        return v
+
+# --- ADMIN ACTION QUEUE SCHEMAS ---
+
+class AdminActionRequest(BaseModel):
+    action_type: Literal["suspend", "activate", "delete"]
+    target_user_id: int
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+class AdminActionResponse(BaseModel):
+    id: int
+    action_type: str
+    requested_by: str
+    target_user_id: int
+    target_user_email: str
+    status: str
+    reason: Optional[str]
+    created_at: datetime
+    reviewed_by: Optional[str]
+    reviewed_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class AdminActionReview(BaseModel):
+    action_id: int
+    decision: Literal["approved", "rejected"]

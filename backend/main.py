@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file FIRST before any other imports that use env vars
+
 from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -7,33 +10,62 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timedelta
-from datetime import datetime, timedelta, timezone 
+from datetime import datetime, timedelta, timezone
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 import os
 import base64
 import hashlib
+import hmac
+import re
+import logging
+import uuid
 from app import parser
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
 
-# In a real-world enterprise app, these keys are stored in an AWS KMS or Hardware Security Module.
-# For this project, we generate a persistent key for the server lifecycle.
-SERVER_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+# Configure logging (replaces all print() statements)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- SERVER PKI KEY (Persistent across restarts) ---
+PKI_KEY_PATH = os.environ.get("SERVER_PKI_KEY_PATH", "server_private_key.pem")
+
+def _load_or_generate_server_key():
+    """Load persistent server PKI key, or generate one if it doesn't exist."""
+    if os.path.exists(PKI_KEY_PATH):
+        with open(PKI_KEY_PATH, "rb") as f:
+            private_key = serialization.load_pem_private_key(f.read(), password=None)
+        logger.info("Loaded existing server PKI key")
+        return private_key
+    else:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        with open(PKI_KEY_PATH, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        os.chmod(PKI_KEY_PATH, 0o600)  # Owner-only read/write
+        logger.info("Generated and saved new server PKI key")
+        return private_key
+
+SERVER_PRIVATE_KEY = _load_or_generate_server_key()
 SERVER_PUBLIC_KEY = SERVER_PRIVATE_KEY.public_key()
-# ------------------------------------------------------
+
+# --- AUDIT LOG HMAC KEY ---
+AUDIT_HMAC_KEY = os.environ.get("AUDIT_HMAC_KEY", "change-this-hmac-key").encode()
 
 def create_audit_log(db: Session, action: str, admin_email: str, target: str = None):
     last_log = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
     prev_hash = last_log.log_hash if last_log else "0"
     
-    # Use timezone-aware UTC
     now = datetime.now(timezone.utc)
     
+    # SECURITY FIX: Use HMAC instead of plain SHA-256 for tamper-evident logs
     log_data = f"{action}-{admin_email}-{target}-{prev_hash}-{now}"
-    current_hash = hashlib.sha256(log_data.encode()).hexdigest()
+    current_hash = hmac.new(AUDIT_HMAC_KEY, log_data.encode(), hashlib.sha256).hexdigest()
     
     new_log = models.AuditLog(
         action=action,
@@ -41,23 +73,35 @@ def create_audit_log(db: Session, action: str, admin_email: str, target: str = N
         target_user=target,
         log_hash=current_hash,
         previous_hash=prev_hash,
-        timestamp=now # Explicitly set the aware timestamp
+        timestamp=now
     )
     db.add(new_log)
-
 
 # Create all database tables
 models.Base.metadata.create_all(bind=engine)
 
-# Initialize FastAPI
-app = FastAPI(title="Secure Job Platform", version="2.0")
+# --- ENVIRONMENT-BASED CONFIGURATION ---
+IS_PRODUCTION = os.environ.get("ENVIRONMENT", "development") == "production"
 
+# API Path Randomization: configurable prefix to obscure endpoints from scanners
+API_PREFIX = os.environ.get("API_PREFIX", "/api/v1")
+
+# Initialize FastAPI — disable docs in production, hide server identity
+app = FastAPI(
+    title="Secure Job Platform",
+    version="2.0",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json"
+)
+
+# --- SMTP CONFIGURATION (from environment variables) ---
 conf = ConnectionConfig(
-    MAIL_USERNAME = "fortknox914@gmail.com", 
-    MAIL_PASSWORD = "lrigfpadqfothkxs",       
-    MAIL_FROM = "fortknox914@gmail.com",     
-    MAIL_PORT = 587,
-    MAIL_SERVER = "smtp.gmail.com",
+    MAIL_USERNAME = os.environ.get("SMTP_USERNAME", "fortknox914@gmail.com"),
+    MAIL_PASSWORD = os.environ.get("SMTP_PASSWORD", ""),
+    MAIL_FROM = os.environ.get("SMTP_FROM", "fortknox914@gmail.com"),
+    MAIL_PORT = int(os.environ.get("SMTP_PORT", "587")),
+    MAIL_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com"),
     MAIL_STARTTLS = True,
     MAIL_SSL_TLS = False,
     USE_CREDENTIALS = True,
@@ -66,16 +110,43 @@ conf = ConnectionConfig(
 
 fastmail = FastMail(conf)
 
-# CORS Configuration - Allow frontend to connect
+# --- SECURITY HEADERS + SERVER FINGERPRINT REMOVAL MIDDLEWARE ---
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    # Add unique request ID for tracing
+    request_id = str(uuid.uuid4())[:8]
+    
+    response = await call_next(request)
+    
+    # Security headers
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://127.0.0.1:8000"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    
+    # Request ID for tracing
+    response.headers["X-Request-ID"] = request_id
+    
+    # ANTI-FINGERPRINTING: Remove/replace server identity headers
+    response.headers["Server"] = "FortKnox"
+    if "x-powered-by" in response.headers:
+        del response.headers["x-powered-by"]
+    
+    return response
+
+# --- CORS Configuration (restricted) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",   # HTTP (for development)
-        "https://localhost:3000"   # HTTPS (secure)
+        "http://localhost:3000",
+        "https://localhost:3000"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Rate Limiting Configuration
@@ -83,21 +154,51 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# --- HELPER: Sanitize filename for Content-Disposition ---
+def sanitize_filename(filename: str) -> str:
+    """Remove path components and unsafe characters from filename."""
+    # Strip path separators
+    filename = os.path.basename(filename)
+    # Allow only safe characters
+    filename = re.sub(r'[^\w\s\-\.]', '_', filename)
+    return filename[:200]  # Limit length
+
+# --- HELPER: Validate file magic bytes ---
+MAGIC_BYTES = {
+    ".pdf": b"%PDF",
+    ".docx": b"PK\x03\x04",  # DOCX is a ZIP archive
+}
+
+def validate_file_content(file_content: bytes, extension: str) -> bool:
+    """Check if file content matches expected magic bytes."""
+    expected = MAGIC_BYTES.get(extension)
+    if expected:
+        return file_content[:len(expected)] == expected
+    return False
+
+# --- HELPER: Escape LIKE special characters ---
+def escape_like(value: str) -> str:
+    """Escape SQL LIKE special characters."""
+    return value.replace('%', r'\%').replace('_', r'\_')
+
+
 @app.get("/")
 def home():
-    return {"status": "Milestone 2 - Identity System Active"}
+    return {"status": "Secure Job Platform Active", "version": "2.0"}
+
+# ==================== REGISTRATION ====================
 
 @app.post("/register", response_model=schemas.UserResponse)
-def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def register_user(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
     # 1. Check if email already exists
     existing_user = db.query(models.User).filter(models.User.email == user.email).first()
     
     if existing_user:
-        # IF USER EXISTS BUT IS VERIFIED: Block them (Security)
         if existing_user.is_verified:
             raise HTTPException(status_code=400, detail="Email already registered")
         
-        # IF USER EXISTS BUT IS NOT VERIFIED: Allow update (User Experience)
+        # IF USER EXISTS BUT IS NOT VERIFIED: Allow update
         existing_user.hashed_password = security.hash_password(user.password)
         existing_user.full_name = user.full_name
         existing_user.role = user.role
@@ -105,76 +206,97 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         db.refresh(existing_user)
         return existing_user
     
-    # 2. If new user, create normally
+    # 2. Create new user (admin can register but needs superadmin approval for destructive actions)
     hashed_password = security.hash_password(user.password)
     new_user = models.User(
         email=user.email,
         hashed_password=hashed_password,
         full_name=user.full_name,
         role=user.role,
-        is_verified=False
+        is_verified=False,
+        is_admin_approved=(user.role != "admin")  # Non-admins are auto-approved
     )
     db.add(new_user)
+    
+    # Audit log
+    create_audit_log(db, "USER_REGISTERED", user.email, f"Role: {user.role}")
+    
     db.commit()
     db.refresh(new_user)
     return new_user
 
+# ==================== LOGIN ====================
+
 @app.post("/login", response_model=schemas.Token)
-def login(user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
     """
-    SECURE LOGIN
-    - Validates email format
-    - Checks if user exists
-    - Verifies password using Argon2
-    - Returns JWT token if successful
+    SECURE LOGIN with:
+    - Rate limiting
+    - Audit logging (success + failure)
+    - Single session enforcement (old sessions invalidated)
+    - Browser fingerprint binding
     """
-    # Check if user exists
     user = db.query(models.User).filter(models.User.email == user_credentials.email).first()
     if not user:
+        create_audit_log(db, "LOGIN_FAILED", user_credentials.email, "User not found")
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Verify password (SECURITY CRITICAL)
     if not security.verify_password(user_credentials.password, user.hashed_password):
+        create_audit_log(db, "LOGIN_FAILED", user_credentials.email, "Wrong password")
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Check if account is active
     if not user.is_active:
+        create_audit_log(db, "LOGIN_BLOCKED", user_credentials.email, "Account suspended")
+        db.commit()
         raise HTTPException(status_code=403, detail="Account suspended")
     
-    # Create JWT token
-    access_token = auth.create_access_token(
-        data={"sub": user.email, "role": user.role}
+    # SINGLE SESSION: Generate unique JTI, store in DB to invalidate any previous session
+    session_jti = auth.generate_session_id()
+    fingerprint = auth.compute_fingerprint(request)
+    
+    # If user already has a session, log it (they're being logged out from the other device)
+    if user.session_id:
+        create_audit_log(db, "SESSION_REPLACED", user.email, f"Old session invalidated, new login from IP {request.client.host}")
+    
+    # Store session info in DB
+    user.session_id = session_jti
+    user.session_fingerprint = fingerprint
+    
+    access_token, _ = auth.create_access_token(
+        data={"sub": user.email, "role": user.role, "jti": session_jti}
     )
+    
+    create_audit_log(db, "LOGIN_SUCCESS", user.email, f"IP: {request.client.host}")
+    db.commit()
     
     return {"access_token": access_token, "token_type": "bearer"}
 
+# ==================== OTP ====================
+
 @app.post("/send-otp", response_model=schemas.OTPResponse)
-@limiter.limit("100/15minutes")
+@limiter.limit("5/15minutes")
 async def send_otp(
     request: Request, 
     otp_request: schemas.OTPRequest, 
-    background_tasks: BackgroundTasks, # For non-blocking email sending
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    SEND OTP VIA REAL GMAIL
-    - Restricted to @gmail.com and @iiitd.ac.in
-    - Uses BackgroundTasks to prevent UI freezing
-    """
     user = db.query(models.User).filter(models.User.email == otp_request.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # 1. Security Check: Account Lockout
     if user.locked_until and otp.is_account_locked(user.locked_until):
         raise HTTPException(status_code=403, detail="Account locked. Try again later.")
     
+    # Invalidate all existing unused OTPs
     db.query(models.OTP).filter(
         models.OTP.user_id == user.id, 
         models.OTP.is_used == False
     ).update({"is_used": True})
     
-    # 2. Generate and Save OTP
     otp_code = otp.generate_otp()
     new_otp = models.OTP(
         user_id=user.id,
@@ -184,48 +306,36 @@ async def send_otp(
     db.add(new_otp)
     db.commit()
 
-    # 3. Create Email Message
     message = MessageSchema(
         subject="FortKnox Security - Your Verification Code",
         recipients=[user.email],
-        body=f"Hello {user.full_name},\n\nYour security verification code is: {otp_code}\n\nThis code will expire in 10 minutes.\n\nStay Secure,\nFortKnox Team",
+        body=f"Hello {user.full_name},\n\nYour security verification code is: {otp_code}\n\nThis code will expire in 2 minutes.\n\nStay Secure,\nFortKnox Team",
         subtype=MessageType.plain
     )
 
-    # 4. Send Email in Background (Security best practice for performance)
     background_tasks.add_task(fastmail.send_message, message)
 
     return {
         "message": "A verification code has been sent to your registered email.",
-        "dev_otp": None # SECURITY: No longer leaking OTP in API response
+        "dev_otp": None
     }
 
 @app.post("/verify-otp")
-def verify_otp_code(otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)):
-    """
-    VERIFY OTP CODE
-    - Checks if OTP is valid and not expired (2 minutes)
-    - Prevents brute force (locks account after 5 failed attempts for 20 minutes)
-    - Marks user as verified upon success
-    - Deletes OTP after successful verification (one-time use)
-    """
-    # Get user
+@limiter.limit("10/minute")
+def verify_otp_code(request: Request, otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == otp_verify.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Check if already verified
     if user.is_verified:
         raise HTTPException(status_code=400, detail="Account already verified")
     
-    # Check if account is locked
     if user.locked_until and otp.is_account_locked(user.locked_until):
         raise HTTPException(
             status_code=403,
             detail="Account locked due to too many failed attempts. Try again later."
         )
     
-    # Get the most recent unused OTP for this user
     db_otp = db.query(models.OTP).filter(
         models.OTP.user_id == user.id,
         models.OTP.is_used == False
@@ -234,16 +344,12 @@ def verify_otp_code(otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)
     if not db_otp:
         raise HTTPException(status_code=400, detail="No OTP found. Please request a new one.")
     
-    # Check if OTP is expired (2 minutes)
     if otp.is_otp_expired(db_otp.created_at):
         raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
     
-    # Verify the OTP code
     if db_otp.code != otp_verify.otp_code:
-        # Increment failed attempts
         user.failed_otp_attempts += 1
         
-        # Lock account if too many failures
         if user.failed_otp_attempts >= otp.MAX_FAILED_ATTEMPTS:
             user.locked_until = otp.calculate_lockout_time()
             db.commit()
@@ -258,11 +364,10 @@ def verify_otp_code(otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)
             detail=f"Invalid OTP. {otp.MAX_FAILED_ATTEMPTS - user.failed_otp_attempts} attempts remaining."
         )
     
-    # SUCCESS: Mark user as verified
     user.is_verified = True
-    user.failed_otp_attempts = 0  # Reset counter
-    user.locked_until = None  # Clear any lockout
-    db_otp.is_used = True  # Mark OTP as used (one-time use)
+    user.failed_otp_attempts = 0
+    user.locked_until = None
+    db_otp.is_used = True
     
     db.commit()
     
@@ -270,6 +375,8 @@ def verify_otp_code(otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)
         "message": "Email verified successfully",
         "is_verified": True
     }
+
+# ==================== RESUME UPLOAD/DOWNLOAD ====================
 
 @app.post("/upload-resume", response_model=schemas.ResumeResponse)
 def upload_resume(
@@ -279,9 +386,9 @@ def upload_resume(
 ):
     """
     SECURE RESUME UPLOAD WITH PARSING AND PKI
-    - Parses text for matching before encryption
+    - Validates file type by magic bytes (not just extension)
     - Signs original file with Server Private Key
-    - Encrypts file with AES-256-GCM for storage
+    - Encrypts file with AES-256-GCM, key envelope-encrypted with master key
     """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
@@ -293,14 +400,20 @@ def upload_resume(
     if file_extension not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are allowed")
     
-    # Read file content
     file_content = file.file.read()
     file_size = len(file_content)
     
     if file_size > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large")
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    
+    if file_size == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
 
-    # --- PARSE TEXT FOR INTELLIGENT MATCHING ---
+    # SECURITY FIX: Validate magic bytes
+    if not validate_file_content(file_content, file_extension):
+        raise HTTPException(status_code=400, detail="File content does not match expected format. Upload rejected.")
+
+    # Parse text for intelligent matching (before encryption)
     extracted_text = ""
     if file_extension == ".pdf":
         extracted_text = parser.extract_text_from_pdf(file_content)
@@ -309,12 +422,15 @@ def upload_resume(
     encryption_key = encryption.generate_key()
     encrypted_data, nonce = encryption.encrypt_file(file_content, encryption_key)
     
+    # SECURITY FIX: Sanitize filename
+    safe_filename = sanitize_filename(file.filename)
     encrypted_filename = f"{user.id}_{os.urandom(8).hex()}{file_extension}.enc"
     file_path = os.path.join("uploads", encrypted_filename)
     
     with open(file_path, "wb") as f:
         f.write(encrypted_data)
         
+    # PKI Signature
     digest = hashes.Hash(hashes.SHA256())
     digest.update(file_content)
     file_hash = digest.finalize()
@@ -325,21 +441,26 @@ def upload_resume(
         hashes.SHA256()
     )
     signature_b64 = base64.b64encode(signature_bytes).decode('utf-8')
-    # ----------------------------------------------------
     
-    # Save metadata AND extracted skills AND PKI signature
+    # SECURITY FIX: Envelope-encrypt the per-file key before DB storage
+    encrypted_file_key = encryption.envelope_encrypt_key(encryption_key)
+    
     resume = models.Resume(
         user_id=user.id,
-        original_filename=file.filename,
+        original_filename=safe_filename,
         encrypted_filename=encrypted_filename,
-        encryption_key=encryption.key_to_string(encryption_key),
+        encryption_key=encrypted_file_key,  # Now envelope-encrypted
         nonce=base64.b64encode(nonce).decode('utf-8'),
         file_size=file_size,
         extracted_skills=extracted_text,
-        signature=signature_b64 # NEW: Storing the signature
+        signature=signature_b64
     )
     
     db.add(resume)
+    
+    # Audit log
+    create_audit_log(db, "RESUME_UPLOADED", user.email, f"File: {safe_filename}")
+    
     db.commit()
     db.refresh(resume)
     
@@ -352,17 +473,16 @@ def download_resume(
     current_user_email: str = Depends(auth.get_current_user)
 ):
     """
-    SECURE RESUME DOWNLOAD
-    - Access control: Owner, Admins, or Recruiters with a valid application.
-    - NEW: PKI Integrity Verification to detect tampering.
+    SECURE RESUME DOWNLOAD with PKI integrity verification.
     """
     from fastapi.responses import Response
     
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     resume = db.query(models.Resume).filter(models.Resume.id == resume_id).first()
     
+    # SECURITY FIX: Uniform response to prevent enumeration
     if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found")
+        raise HTTPException(status_code=403, detail="Access denied")
     
     allowed = False
     
@@ -381,9 +501,8 @@ def download_resume(
             allowed = True
 
     if not allowed:
-        raise HTTPException(status_code=403, detail="Access denied: You are not authorized to view this resume")
+        raise HTTPException(status_code=403, detail="Access denied")
     
-    # 1. Read Encrypted File
     file_path = os.path.join("uploads", resume.encrypted_filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found on disk")
@@ -391,12 +510,13 @@ def download_resume(
     with open(file_path, "rb") as f:
         encrypted_data = f.read()
     
-    # 2. Decrypt File
     try:
-        encryption_key = encryption.string_to_key(resume.encryption_key)
+        # SECURITY FIX: Envelope-decrypt the per-file key
+        encryption_key = encryption.envelope_decrypt_key(resume.encryption_key)
         nonce = base64.b64decode(resume.nonce.encode('utf-8'))
         decrypted_data = encryption.decrypt_file(encrypted_data, encryption_key, nonce)
         
+        # PKI Integrity Verification
         if resume.signature:
             try:
                 digest = hashes.Hash(hashes.SHA256())
@@ -405,27 +525,33 @@ def download_resume(
                 
                 sig_bytes = base64.b64decode(resume.signature.encode('utf-8'))
                 
-                # This will raise an exception if the signature is invalid
                 SERVER_PUBLIC_KEY.verify(
                     sig_bytes,
                     file_hash,
                     padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
                     hashes.SHA256()
                 )
-                print(f"🔒 PKI VERIFIED: Resume {resume_id} integrity confirmed.")
-            except Exception as e:
-                print(f"🚨 PKI ALERT: Resume {resume_id} failed integrity check! {e}")
-                raise HTTPException(status_code=500, detail="CRITICAL: Resume signature verification failed. File has been tampered with.")
+                logger.info(f"PKI VERIFIED: Resume {resume_id} integrity confirmed.")
+            except Exception:
+                logger.warning(f"PKI ALERT: Resume {resume_id} failed integrity check!")
+                raise HTTPException(status_code=500, detail="Resume integrity verification failed.")
                   
-    except Exception as e:
-        if isinstance(e, HTTPException): raise e 
-        raise HTTPException(status_code=500, detail="Decryption failed. File may be corrupted.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Decryption failed.")
     
+    # Audit log
+    create_audit_log(db, "RESUME_DOWNLOADED", current_user_email, f"Resume ID: {resume_id}")
+    db.commit()
+    
+    # SECURITY FIX: Sanitize filename in Content-Disposition header
+    safe_name = sanitize_filename(resume.original_filename)
     
     return Response(
         content=decrypted_data,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={resume.original_filename}"}
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'}
     )
 
 @app.get("/my-resumes", response_model=list[schemas.ResumeResponse])
@@ -433,11 +559,6 @@ def list_my_resumes(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    LIST USER'S RESUMES
-    - Returns all resumes uploaded by the current user
-    - Includes file metadata (name, size, upload date)
-    """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -445,20 +566,16 @@ def list_my_resumes(
     resumes = db.query(models.Resume).filter(models.Resume.user_id == user.id).all()
     return resumes
 
+# ==================== PROFILE ====================
+
 @app.get("/profile", response_model=schemas.ProfileResponse)
 def get_profile(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    GET USER PROFILE
-    - Returns the authenticated user's complete profile
-    - Includes all fields and privacy settings
-    """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
     return user
 
 @app.put("/profile", response_model=schemas.ProfileResponse)
@@ -467,60 +584,208 @@ def update_profile(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    UPDATE USER PROFILE
-    - Users can update their profile information
-    - Can set privacy levels for each field (public/connections/private)
-    - Only updates fields that are provided (partial updates allowed)
-    """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Update only the fields that were provided
+    # SECURITY: Only update fields defined in the schema (not role, email, etc.)
     update_data = profile_update.model_dump(exclude_unset=True)
     
+    # Whitelist of allowed fields
+    allowed_fields = {
+        'headline', 'location', 'bio', 'skills', 'experience', 'education',
+        'headline_privacy', 'location_privacy', 'bio_privacy', 
+        'skills_privacy', 'experience_privacy', 'education_privacy',
+        'share_view_history'
+    }
+    
     for field, value in update_data.items():
-        setattr(user, field, value)
+        if field in allowed_fields:
+            setattr(user, field, value)
     
     db.commit()
     db.refresh(user)
     
     return user
 
+# ==================== ADMIN ====================
+
 @app.get("/admin/users", response_model=list[schemas.UserListItem])
 def list_all_users(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
-    """
-    ADMIN: LIST ALL USERS
-    - Only accessible by Platform Admins
-    - Returns all registered users with their status
-    - Used for user management and moderation
-    """
     users = db.query(models.User).all()
     return users
 
+@app.post("/admin/request-action", response_model=schemas.AdminActionResponse)
+def request_admin_action(
+    action: schemas.AdminActionRequest,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """
+    Admin requests a destructive action (suspend/delete/activate).
+    The action goes into a queue for SUPERADMIN approval.
+    Superadmins can execute directly.
+    """
+    admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
+    target = db.query(models.User).filter(models.User.id == action.target_user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if target.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Cannot perform actions on other admins")
+    
+    # SUPERADMIN: Execute immediately without queue
+    if admin_user.role == "superadmin":
+        if action.action_type == "suspend":
+            target.is_active = False
+            create_audit_log(db, "USER_SUSPENDED", admin_email, target.email)
+        elif action.action_type == "activate":
+            target.is_active = True
+            create_audit_log(db, "USER_ACTIVATED", admin_email, target.email)
+        elif action.action_type == "delete":
+            create_audit_log(db, "USER_DELETED", admin_email, target.email)
+            db.delete(target)
+        
+        # Record it in the queue as auto-approved for audit trail
+        queue_entry = models.AdminActionQueue(
+            action_type=action.action_type,
+            requested_by=admin_email,
+            target_user_id=action.target_user_id,
+            target_user_email=target.email,
+            status="approved",
+            reason=action.reason,
+            reviewed_by=admin_email,
+            reviewed_at=datetime.now(timezone.utc)
+        )
+        db.add(queue_entry)
+        db.commit()
+        db.refresh(queue_entry)
+        return queue_entry
+    
+    # REGULAR ADMIN: Queue for superadmin approval
+    queue_entry = models.AdminActionQueue(
+        action_type=action.action_type,
+        requested_by=admin_email,
+        target_user_id=action.target_user_id,
+        target_user_email=target.email,
+        status="pending",
+        reason=action.reason
+    )
+    db.add(queue_entry)
+    create_audit_log(db, f"ADMIN_ACTION_REQUESTED", admin_email, f"{action.action_type} user {target.email}")
+    db.commit()
+    db.refresh(queue_entry)
+    return queue_entry
+
+@app.get("/admin/action-queue", response_model=list[schemas.AdminActionResponse])
+def get_action_queue(
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """View all pending admin actions (admins see their own, superadmins see all)."""
+    admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
+    if admin_user.role == "superadmin":
+        return db.query(models.AdminActionQueue).order_by(models.AdminActionQueue.created_at.desc()).all()
+    return db.query(models.AdminActionQueue).filter(
+        models.AdminActionQueue.requested_by == admin_email
+    ).order_by(models.AdminActionQueue.created_at.desc()).all()
+
+@app.post("/superadmin/review-action", response_model=schemas.AdminActionResponse)
+def review_admin_action(
+    review: schemas.AdminActionReview,
+    db: Session = Depends(get_db),
+    superadmin_email: str = Depends(auth.require_superadmin)
+):
+    """
+    SUPERADMIN ONLY: Approve or reject a pending admin action.
+    Only approved actions are executed.
+    """
+    queue_item = db.query(models.AdminActionQueue).filter(
+        models.AdminActionQueue.id == review.action_id,
+        models.AdminActionQueue.status == "pending"
+    ).first()
+    if not queue_item:
+        raise HTTPException(status_code=404, detail="Pending action not found")
+    
+    queue_item.reviewed_by = superadmin_email
+    queue_item.reviewed_at = datetime.now(timezone.utc)
+    
+    if review.decision == "approved":
+        queue_item.status = "approved"
+        target = db.query(models.User).filter(models.User.id == queue_item.target_user_id).first()
+        if target:
+            if queue_item.action_type == "suspend":
+                target.is_active = False
+                target.session_id = None  # Force logout
+                create_audit_log(db, "USER_SUSPENDED", superadmin_email, target.email)
+            elif queue_item.action_type == "activate":
+                target.is_active = True
+                create_audit_log(db, "USER_ACTIVATED", superadmin_email, target.email)
+            elif queue_item.action_type == "delete":
+                create_audit_log(db, "USER_DELETED", superadmin_email, target.email)
+                db.delete(target)
+        create_audit_log(db, "ADMIN_ACTION_APPROVED", superadmin_email, f"Action ID: {review.action_id}")
+    else:
+        queue_item.status = "rejected"
+        create_audit_log(db, "ADMIN_ACTION_REJECTED", superadmin_email, f"Action ID: {review.action_id}")
+    
+    db.commit()
+    db.refresh(queue_item)
+    return queue_item
+
+@app.post("/superadmin/approve-admin/{user_id}")
+def approve_admin_registration(
+    user_id: int,
+    db: Session = Depends(get_db),
+    superadmin_email: str = Depends(auth.require_superadmin)
+):
+    """SUPERADMIN ONLY: Approve an admin account for full admin powers."""
+    user = db.query(models.User).filter(models.User.id == user_id, models.User.role == "admin").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Admin user not found")
+    user.is_admin_approved = True
+    create_audit_log(db, "ADMIN_APPROVED", superadmin_email, user.email)
+    db.commit()
+    return {"message": f"Admin {user.email} has been approved"}
+
+@app.get("/admin/audit-logs", response_model=list[schemas.AuditLogResponse])
+def get_audit_logs(db: Session = Depends(get_db), admin_email: str = Depends(auth.require_admin)):
+    return db.query(models.AuditLog).order_by(models.AuditLog.timestamp.desc()).all()
+
+# Legacy endpoints for backward compatibility (redirect to queue system)
 @app.post("/admin/suspend/{user_id}", response_model=schemas.AdminAction)
 def suspend_user(
     user_id: int,
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
+    """Legacy: Redirects to the queue system."""
+    admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user.role == "admin":
-        raise HTTPException(status_code=403, detail="Cannot suspend other admins")
+    if user.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Cannot suspend admins")
     
-    user.is_active = False
+    # Superadmin: execute immediately
+    if admin_user.role == "superadmin":
+        user.is_active = False
+        user.session_id = None
+        create_audit_log(db, "USER_SUSPENDED", admin_email, user.email)
+        db.commit()
+        return {"message": f"User {user.email} has been suspended", "user_id": user_id}
     
-    # NEW: Secure Logging
-    create_audit_log(db, "USER_SUSPENDED", admin_email, user.email)
-    
+    # Regular admin: queue it
+    queue_entry = models.AdminActionQueue(
+        action_type="suspend", requested_by=admin_email,
+        target_user_id=user_id, target_user_email=user.email, status="pending"
+    )
+    db.add(queue_entry)
+    create_audit_log(db, "ADMIN_ACTION_REQUESTED", admin_email, f"suspend {user.email}")
     db.commit()
-    return {"message": f"User {user.email} has been suspended", "user_id": user_id}
+    return {"message": f"Suspend request queued for superadmin approval", "user_id": user_id}
 
 @app.post("/admin/activate/{user_id}", response_model=schemas.AdminAction)
 def activate_user(
@@ -528,17 +793,26 @@ def activate_user(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
+    """Legacy: Redirects to the queue system."""
+    admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    user.is_active = True
+    if admin_user.role == "superadmin":
+        user.is_active = True
+        create_audit_log(db, "USER_ACTIVATED", admin_email, user.email)
+        db.commit()
+        return {"message": f"User {user.email} has been activated", "user_id": user_id}
     
-    # NEW: Secure Logging
-    create_audit_log(db, "USER_ACTIVATED", admin_email, user.email)
-    
+    queue_entry = models.AdminActionQueue(
+        action_type="activate", requested_by=admin_email,
+        target_user_id=user_id, target_user_email=user.email, status="pending"
+    )
+    db.add(queue_entry)
+    create_audit_log(db, "ADMIN_ACTION_REQUESTED", admin_email, f"activate {user.email}")
     db.commit()
-    return {"message": f"User {user.email} has been activated", "user_id": user_id}
+    return {"message": f"Activate request queued for superadmin approval", "user_id": user_id}
 
 @app.delete("/admin/delete/{user_id}", response_model=schemas.AdminAction)
 def delete_user(
@@ -546,27 +820,31 @@ def delete_user(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
+    """Legacy: Redirects to the queue system."""
+    admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user.role == "admin":
-        raise HTTPException(status_code=403, detail="Cannot delete other admins")
+    if user.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Cannot delete admins")
     
-    target_email = user.email
-    db.delete(user)
+    if admin_user.role == "superadmin":
+        target_email = user.email
+        db.delete(user)
+        create_audit_log(db, "USER_DELETED", admin_email, target_email)
+        db.commit()
+        return {"message": f"User {target_email} has been permanently deleted", "user_id": user_id}
     
-    # NEW: Secure Logging
-    create_audit_log(db, "USER_DELETED", admin_email, target_email)
-    
+    queue_entry = models.AdminActionQueue(
+        action_type="delete", requested_by=admin_email,
+        target_user_id=user_id, target_user_email=user.email, status="pending"
+    )
+    db.add(queue_entry)
+    create_audit_log(db, "ADMIN_ACTION_REQUESTED", admin_email, f"delete {user.email}")
     db.commit()
-    return {"message": f"User {target_email} has been permanently deleted", "user_id": user_id}
+    return {"message": f"Delete request queued for superadmin approval", "user_id": user_id}
 
-# NEW: Endpoint to let the Admin Panel view the logs
-@app.get("/admin/audit-logs", response_model=list[schemas.AuditLogResponse])
-def get_audit_logs(db: Session = Depends(get_db), admin_email: str = Depends(auth.require_admin)):
-    return db.query(models.AuditLog).order_by(models.AuditLog.timestamp.desc()).all()
-
-# --- COMPANY ENDPOINTS ---
+# ==================== COMPANY ====================
 
 @app.post("/companies", response_model=schemas.CompanyResponse)
 def create_company(
@@ -574,12 +852,8 @@ def create_company(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    RECRUITER ONLY: Create a Company Page.
-    """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # RBAC: Only recruiters can create companies
     if user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Only recruiters can create company pages")
         
@@ -591,18 +865,18 @@ def create_company(
         website=company.website
     )
     db.add(new_company)
+    
+    create_audit_log(db, "COMPANY_CREATED", user.email, f"Company: {company.name}")
+    
     db.commit()
     db.refresh(new_company)
     return new_company
 
 @app.get("/companies", response_model=list[schemas.CompanyResponse])
 def list_companies(db: Session = Depends(get_db)):
-    """
-    PUBLIC: List all companies.
-    """
     return db.query(models.Company).all()
 
-# --- JOB ENDPOINTS ---
+# ==================== JOB ====================
 
 @app.post("/jobs", response_model=schemas.JobResponse)
 def post_job(
@@ -610,10 +884,18 @@ def post_job(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """RECRUITER ONLY: Post a new job."""
+    """RECRUITER ONLY: Post a new job with company ownership verification."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Only recruiters can post jobs")
+    
+    # SECURITY FIX: Verify recruiter owns the company
+    company = db.query(models.Company).filter(
+        models.Company.id == job.company_id,
+        models.Company.recruiter_id == user.id
+    ).first()
+    if not company:
+        raise HTTPException(status_code=403, detail="You can only post jobs for your own companies")
     
     new_job = models.Job(
         recruiter_id=user.id,
@@ -627,13 +909,15 @@ def post_job(
         deadline=job.deadline
     )
     db.add(new_job)
+    
+    create_audit_log(db, "JOB_POSTED", user.email, f"Job: {job.title} for Company ID: {job.company_id}")
+    
     db.commit()
     db.refresh(new_job)
     return new_job
 
 @app.get("/jobs", response_model=list[schemas.JobResponse])
 def list_jobs(db: Session = Depends(get_db)):
-    """PUBLIC: This is the endpoint the Job Board calls to see all jobs."""
     return db.query(models.Job).filter(models.Job.is_active == True).all()
 
 @app.get("/my-jobs", response_model=list[schemas.JobResponse])
@@ -641,11 +925,10 @@ def list_my_jobs(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """RECRUITER ONLY: List jobs posted by the logged-in recruiter."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     return db.query(models.Job).filter(models.Job.recruiter_id == user.id).all()
 
-# --- APPLICATION ENDPOINTS ---
+# ==================== APPLICATION ====================
 
 @app.post("/applications", response_model=schemas.ApplicationResponse)
 def apply_to_job(
@@ -658,7 +941,6 @@ def apply_to_job(
     if user.role != "job_seeker":
         raise HTTPException(status_code=403, detail="Only job seekers can apply")
     
-    # --- NEW: DUPLICATE PREVENTION CHECK ---
     existing_app = db.query(models.Application).filter(
         models.Application.job_id == app_data.job_id,
         models.Application.applicant_id == user.id
@@ -666,9 +948,7 @@ def apply_to_job(
     
     if existing_app:
         raise HTTPException(status_code=400, detail="You have already applied for this job")
-    # ---------------------------------------
 
-    # 1. Fetch Job and Resume
     job = db.query(models.Job).filter(models.Job.id == app_data.job_id).first()
     resume = db.query(models.Resume).filter(
         models.Resume.id == app_data.resume_id, 
@@ -678,12 +958,10 @@ def apply_to_job(
     if not job or not resume:
         raise HTTPException(status_code=404, detail="Job or Resume not found")
 
-    # 2. INTELLIGENT MATCHING (The Bonus Logic)
     calculated_score = 0
     if resume.extracted_skills:
         calculated_score = parser.calculate_match_score(resume.extracted_skills, job.skills_required)
 
-    # 3. Create Application with the Score
     new_app = models.Application(
         job_id=app_data.job_id,
         applicant_id=user.id,
@@ -692,7 +970,6 @@ def apply_to_job(
         match_score=calculated_score 
     )
     
-    # Audit Log for security
     create_audit_log(db, "JOB_APPLICATION_SUBMITTED", user.email, f"Job ID: {job.id}")
     
     db.add(new_app)
@@ -705,7 +982,6 @@ def list_my_applications(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """JOB SEEKER ONLY: View applications with Job Title and Recruiter ID."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
     results = db.query(
@@ -730,12 +1006,10 @@ def list_recruiter_applications(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """RECRUITER ONLY: View all applicants with their match scores."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Query for applications on jobs owned by this recruiter
     results = db.query(
         models.Application, 
         models.User.full_name.label("applicant_name"),
@@ -744,12 +1018,8 @@ def list_recruiter_applications(
      .join(models.User, models.User.id == models.Application.applicant_id)\
      .filter(models.Job.recruiter_id == user.id).all()
     
-        # Inside @app.get("/applications/recruiter")
     output = []
     for app_obj, name, title in results:
-        # DEEP DEBUG PRINT
-        print(f"DATABASE CHECK: App ID {app_obj.id} for {name} has score: {app_obj.match_score}%")
-        
         output.append({
             "id": app_obj.id,
             "job_id": app_obj.job_id,
@@ -764,7 +1034,7 @@ def list_recruiter_applications(
         })
     return output
 
-# --- MESSAGING ENDPOINTS ---
+# ==================== MESSAGING (E2EE) ====================
 
 @app.post("/users/public-key")
 def update_public_key(
@@ -779,8 +1049,12 @@ def update_public_key(
     return {"message": "Public key updated"}
 
 @app.get("/users/{user_id}/public-key")
-def get_user_public_key(user_id: int, db: Session = Depends(get_db)):
-    """Fetch a recipient's public key for encryption."""
+def get_user_public_key(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)  # SECURITY FIX: Added auth
+):
+    """Fetch a recipient's public key for encryption (requires authentication)."""
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user or not user.public_key:
         raise HTTPException(status_code=404, detail="Public key not found")
@@ -792,8 +1066,38 @@ def send_message(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """Store an E2EE encrypted message and its digital signature."""
+    """Store an E2EE encrypted message with validation."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # SECURITY FIX: Validate receiver exists
+    receiver = db.query(models.User).filter(models.User.id == msg.receiver_id).first()
+    if not receiver:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    
+    # SECURITY FIX: Prevent messaging yourself
+    if receiver.id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot message yourself")
+    
+    # SECURITY FIX: Verify connection exists between sender and receiver
+    conn = db.query(models.Connection).filter(
+        models.Connection.status == "accepted",
+        (
+            ((models.Connection.user_id == user.id) & (models.Connection.connection_id == receiver.id)) |
+            ((models.Connection.user_id == receiver.id) & (models.Connection.connection_id == user.id))
+        )
+    ).first()
+    
+    # Also allow if there's an application relationship (recruiter-candidate)
+    app_link = db.query(models.Application).join(
+        models.Job, models.Job.id == models.Application.job_id
+    ).filter(
+        ((models.Application.applicant_id == user.id) & (models.Job.recruiter_id == receiver.id)) |
+        ((models.Application.applicant_id == receiver.id) & (models.Job.recruiter_id == user.id))
+    ).first()
+    
+    if not conn and not app_link:
+        raise HTTPException(status_code=403, detail="You can only message connections or linked recruiters/candidates")
+    
     new_msg = models.Message(
         sender_id=user.id,
         receiver_id=msg.receiver_id,
@@ -818,6 +1122,8 @@ def get_messages(
         ((models.Message.sender_id == other_user_id) & (models.Message.receiver_id == user.id))
     ).order_by(models.Message.timestamp.asc()).all()
 
+# ==================== APPLICATION STATUS ====================
+
 @app.put("/applications/{application_id}/status")
 def update_application_status(
     application_id: int,
@@ -825,49 +1131,37 @@ def update_application_status(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """RECRUITER ONLY: Update the status of an application and log the change."""
+    """RECRUITER ONLY: Update the status of an application."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # 1. Security Check: Role
     if user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Only recruiters can update application status")
     
-    # 2. Find Application
     application = db.query(models.Application).filter(models.Application.id == application_id).first()
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
         
-    # 3. Security Check: Ownership (Does this recruiter own the job?)
     job = db.query(models.Job).filter(models.Job.id == application.job_id).first()
     if job.recruiter_id != user.id:
         raise HTTPException(status_code=403, detail="Unauthorized: This is not your job posting")
         
-    # 4. Update Status
     old_status = application.status
     application.status = status_data.status
     
-    # 5. Audit Log (Cryptographic Chain)
     create_audit_log(db, "APP_STATUS_CHANGE", user.email, f"App ID {application_id}: {old_status} -> {status_data.status}")
     
     db.commit()
     return {"message": "Status updated successfully", "new_status": application.status}
 
-# --- INTELLIGENT MATCHING ENDPOINT (Bonus +2%) ---
+# ==================== INTELLIGENT MATCHING ====================
 
 @app.get("/jobs/recommendations")
 def get_job_recommendations(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    JOB SEEKER ONLY: Suggest Top 3 jobs based on resume parsing.
-    - Fetches the user's latest resume text.
-    - Compares text against all active job skills.
-    - Returns the Top 3 matches with scores.
-    """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # 1. Get the latest resume for this user
     resume = db.query(models.Resume).filter(
         models.Resume.user_id == user.id
     ).order_by(models.Resume.uploaded_at.desc()).first()
@@ -875,19 +1169,15 @@ def get_job_recommendations(
     if not resume or not resume.extracted_skills:
         return []
 
-    # 2. Get all active jobs from other recruiters (or all jobs)
     all_jobs = db.query(models.Job).filter(models.Job.is_active == True).all()
     
-    # 3. Calculate scores
     recommendations = []
     for job in all_jobs:
-        # We join with the Company table to get the name for the UI
         company = db.query(models.Company).filter(models.Company.id == job.company_id).first()
         company_name = company.name if company else "Unknown Company"
         
         score = parser.calculate_match_score(resume.extracted_skills, job.skills_required)
         
-        # Only suggest if there is some match
         if score > 0:
             recommendations.append({
                 "job_id": job.id,
@@ -898,9 +1188,10 @@ def get_job_recommendations(
                 "match_score": score
             })
     
-    # 4. Sort by score (highest first) and take Top 3
     recommendations.sort(key=lambda x: x['match_score'], reverse=True)
     return recommendations[:3]
+
+# ==================== USER DIRECTORY ====================
 
 @app.get("/users/directory")
 def get_user_directory(
@@ -909,28 +1200,27 @@ def get_user_directory(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """List users with connection status, ensuring keys match the frontend."""
     limit = 15
     offset = (page - 1) * limit
     current_user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # 1. Filter out me and admins
     query = db.query(models.User).filter(
         models.User.id != current_user.id,
         models.User.role != "admin"
     )
     
     if q:
+        # SECURITY FIX: Escape LIKE special characters
+        safe_q = escape_like(q)
         query = query.filter(
-            (models.User.full_name.ilike(f"%{q}%")) | 
-            (models.User.headline.ilike(f"%{q}%"))
+            (models.User.full_name.ilike(f"%{safe_q}%")) | 
+            (models.User.headline.ilike(f"%{safe_q}%"))
         )
     
     users = query.offset(offset).limit(limit).all()
     
     output = []
     for u in users:
-        # Check relationship in either direction
         conn = db.query(models.Connection).filter(
             ((models.Connection.user_id == current_user.id) & (models.Connection.connection_id == u.id)) |
             ((models.Connection.user_id == u.id) & (models.Connection.connection_id == current_user.id))
@@ -942,7 +1232,6 @@ def get_user_directory(
             if conn.status == "accepted":
                 status = "accepted"
             else:
-                # Distinguish if I sent it or received it
                 status = "request_sent" if conn.user_id == current_user.id else "request_received"
             request_id = conn.id
 
@@ -957,25 +1246,20 @@ def get_user_directory(
         
     return output
 
+# ==================== PROFILE VIEW ====================
+
 @app.get("/users/{user_id}/profile", response_model=schemas.UserProfilePublic)
 def get_other_user_profile(
     user_id: int, 
     db: Session = Depends(get_db), 
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    SECURE PROFILE VIEW (Requirement A)
-    - Enforces Field-Level Privacy
-    - Tracks Recent Viewers (with 5-min cooldown)
-    - Calculates Mutual Connections (Graph Logic)
-    """
     me = db.query(models.User).filter(models.User.email == current_user_email).first()
     target = db.query(models.User).filter(models.User.id == user_id).first()
     
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
         
-    # 1. Check if we are directly connected
     conn = db.query(models.Connection).filter(
         ((models.Connection.user_id == me.id) & (models.Connection.connection_id == target.id) & (models.Connection.status == "accepted")) |
         ((models.Connection.user_id == target.id) & (models.Connection.connection_id == me.id) & (models.Connection.status == "accepted"))
@@ -983,7 +1267,6 @@ def get_other_user_profile(
     
     is_connected = True if conn else False
     
-    # 2. Privacy Filter Logic
     def filter_field(value, privacy_level):
         if privacy_level == "public":
             return value
@@ -991,7 +1274,6 @@ def get_other_user_profile(
             return value
         return "RESTRICTED_BY_PRIVACY" if value else None
 
-    # 3. Smart Profile View Recording (Prevents duplicates within 5 minutes)
     if me.id != target.id:
         five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
         recent_view = db.query(models.ProfileView).filter(
@@ -1006,22 +1288,18 @@ def get_other_user_profile(
             create_audit_log(db, "PROFILE_VIEW", me.email, f"Viewed user ID: {target.id}")
             db.commit()
 
-    # 4. Calculate Mutual Connections (Requirement 2A)
-    # Get IDs of people connected to ME
     my_conns = db.query(models.Connection).filter(
         (models.Connection.status == "accepted") & 
         ((models.Connection.user_id == me.id) | (models.Connection.connection_id == me.id))
     ).all()
     my_conn_ids = {c.user_id if c.connection_id == me.id else c.connection_id for c in my_conns}
 
-    # Get IDs of people connected to TARGET
     target_conns = db.query(models.Connection).filter(
         (models.Connection.status == "accepted") & 
         ((models.Connection.user_id == target.id) | (models.Connection.connection_id == target.id))
     ).all()
     target_conn_ids = {c.user_id if c.connection_id == target.id else c.connection_id for c in target_conns}
 
-    # Find intersection of sets
     mutual_count = len(my_conn_ids.intersection(target_conn_ids))
 
     return {
@@ -1042,13 +1320,8 @@ def get_recent_viewers(
     db: Session = Depends(get_db), 
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """
-    SECURE VIEWERS LIST: Shows who looked at your profile.
-    - Respects "Anonymous Mode" (share_view_history toggle).
-    """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # Get the 5 most recent views for this user
     views = db.query(
         models.ProfileView, 
         models.User.full_name, 
@@ -1062,12 +1335,11 @@ def get_recent_viewers(
     for view_obj, viewer_name, can_share in views:
         output.append({
             "timestamp": view_obj.timestamp,
-            # PRIVACY CHECK: If viewer opted out, hide their name
             "viewer_name": viewer_name if can_share else "Anonymous Professional"
         })
     return output
 
-# --- CONNECTION LOGIC ---
+# ==================== CONNECTIONS ====================
 
 @app.post("/connections/request", response_model=schemas.ConnectionResponse)
 def send_connection_request(
@@ -1075,13 +1347,16 @@ def send_connection_request(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """Send a connection request to another user."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
     if user.id == data.receiver_id:
         raise HTTPException(status_code=400, detail="Cannot connect to yourself")
+    
+    # Verify receiver exists
+    receiver = db.query(models.User).filter(models.User.id == data.receiver_id).first()
+    if not receiver:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    # Check if request already exists (either direction)
     exists = db.query(models.Connection).filter(
         ((models.Connection.user_id == user.id) & (models.Connection.connection_id == data.receiver_id)) |
         ((models.Connection.user_id == data.receiver_id) & (models.Connection.connection_id == user.id))
@@ -1097,7 +1372,6 @@ def send_connection_request(
     )
     db.add(new_request)
     
-    # AUDIT LOG (Security Requirement H)
     create_audit_log(db, "CONN_REQUEST_SENT", user.email, f"Target ID: {data.receiver_id}")
     
     db.commit()
@@ -1109,7 +1383,6 @@ def get_pending_requests(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """Get incoming connection requests for the current user."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
     requests = db.query(
@@ -1119,7 +1392,6 @@ def get_pending_requests(
     ).join(models.User, models.User.id == models.Connection.user_id)\
      .filter((models.Connection.connection_id == user.id) & (models.Connection.status == "pending")).all()
     
-    # Format to list of dictionaries
     return [dict(r._mapping) for r in requests]
 
 @app.put("/connections/accept")
@@ -1128,7 +1400,6 @@ def update_connection_status(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """Accept or Reject a connection request."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     conn_req = db.query(models.Connection).filter(models.Connection.id == data.request_id).first()
     
@@ -1145,7 +1416,7 @@ def update_connection_status(
     db.commit()
     return {"message": f"Connection {data.status}"}
 
-# ACCOUNT DELETION
+# ==================== ACCOUNT DELETION ====================
 
 @app.post("/users/me/delete")
 def secure_delete_account(
@@ -1159,7 +1430,6 @@ def secure_delete_account(
     """
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
-    # 1. Verify OTP (Same strict logic as registration)
     db_otp = db.query(models.OTP).filter(
         models.OTP.user_id == user.id,
         models.OTP.is_used == False
@@ -1171,23 +1441,21 @@ def secure_delete_account(
     if str(db_otp.code).strip() != str(req.otp_code).strip():
         raise HTTPException(status_code=400, detail="Incorrect OTP code.")
 
-    # 2. Burn the OTP
     db_otp.is_used = True
     
-    # 3. Secure Audit Log BEFORE deletion
     create_audit_log(db, "ACCOUNT_SELF_DELETED", user.email, "Account permanently removed")
     
-    # 4. Perform Deletion
-    # In a real system, you'd cascade delete messages, resumes, etc.
     db.delete(user)
     db.commit()
     
     return {"message": "Account successfully deleted."}
 
-# --- PASSWORD RESET FLOW ---
+# ==================== PASSWORD RESET ====================
 
 @app.post("/password-reset/request")
+@limiter.limit("5/15minutes")
 async def request_password_reset(
+    request: Request,
     req: schemas.PasswordResetRequest, 
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
@@ -1209,29 +1477,35 @@ async def request_password_reset(
     db.add(new_otp)
     db.commit()
 
-    # Send Real Email
     message = MessageSchema(
         subject="FortKnox - Password Reset Code",
         recipients=[user.email],
-        body=f"Your password reset code is: {otp_code}\n\nDo not share this code with anyone. It expires in 10 minutes.",
+        body=f"Your password reset code is: {otp_code}\n\nDo not share this code with anyone. It expires in 2 minutes.",
         subtype=MessageType.plain
     )
     background_tasks.add_task(fastmail.send_message, message)
     
-    # Secure Audit
     create_audit_log(db, "PASSWORD_RESET_REQUESTED", user.email, "User initiated password reset")
+    db.commit()
     
     return {"message": "If the email exists, an OTP has been sent."}
 
 
 @app.post("/password-reset/confirm")
-def confirm_password_reset(req: schemas.PasswordResetConfirm, db: Session = Depends(get_db)):
-    """Verifies OTP and updates the password."""
+@limiter.limit("10/minute")
+def confirm_password_reset(request: Request, req: schemas.PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Verifies OTP and updates the password (with brute-force protection)."""
     user = db.query(models.User).filter(models.User.email == req.email).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=400, detail="Invalid request")
         
-    # Verify OTP
+    # SECURITY FIX: Check lockout (same as registration OTP)
+    if user.locked_until and otp.is_account_locked(user.locked_until):
+        raise HTTPException(
+            status_code=403,
+            detail="Account locked due to too many failed attempts. Try again later."
+        )
+    
     db_otp = db.query(models.OTP).filter(
         models.OTP.user_id == user.id,
         models.OTP.is_used == False
@@ -1241,18 +1515,30 @@ def confirm_password_reset(req: schemas.PasswordResetConfirm, db: Session = Depe
         raise HTTPException(status_code=400, detail="OTP invalid or expired.")
         
     if str(db_otp.code).strip() != str(req.otp_code).strip():
-        raise HTTPException(status_code=400, detail="Incorrect OTP.")
+        # SECURITY FIX: Brute-force protection on password reset OTP
+        user.failed_otp_attempts += 1
+        
+        if user.failed_otp_attempts >= otp.MAX_FAILED_ATTEMPTS:
+            user.locked_until = otp.calculate_lockout_time()
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail=f"Account locked for {otp.LOCKOUT_DURATION_MINUTES} minutes due to too many failed attempts."
+            )
+        
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Incorrect OTP. {otp.MAX_FAILED_ATTEMPTS - user.failed_otp_attempts} attempts remaining."
+        )
 
-    # Apply new password
-    schemas.UserCreate.password_strength(req.new_password) # Enforce strength rules
+    # Password strength is now validated at schema level (PasswordResetConfirm)
     user.hashed_password = security.hash_password(req.new_password)
     
-    # Burn OTP & remove any lockouts
     db_otp.is_used = True
     user.failed_otp_attempts = 0
     user.locked_until = None
     
-    # Secure Audit
     create_audit_log(db, "PASSWORD_CHANGED", user.email, "Password reset via OTP")
     
     db.commit()

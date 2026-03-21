@@ -67,11 +67,12 @@ function Dashboard() {
   };
 
   const setupEncryption = async () => {
-    const password = sessionStorage.getItem('user_pwd');
-    if (!password) return;
+    const derivedKeyB64 = sessionStorage.getItem('derived_key');
+    if (!derivedKeyB64) return;
     try {
       const { publicKey, privateKey } = cryptoService.generateKeyPair();
-      const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, password);
+      // Use the derived key (not raw password) to encrypt the private key
+      const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, derivedKeyB64);
       localStorage.setItem('encrypted_private_key', encryptedPrivKey);
       await authAPI.updatePublicKey({ public_key: publicKey });
     } catch (err) { console.error(err); }

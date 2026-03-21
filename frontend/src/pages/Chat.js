@@ -34,10 +34,10 @@ function Chat() {
       setProfile(profRes.data);
 
       const encryptedKeyJson = localStorage.getItem('encrypted_private_key');
-      const password = sessionStorage.getItem('user_pwd');
+      const derivedKeyB64 = sessionStorage.getItem('derived_key');
       
-      if (encryptedKeyJson && password) {
-        const decryptedKey = cryptoService.decryptPrivateKey(encryptedKeyJson, password);
+      if (encryptedKeyJson && derivedKeyB64) {
+        const decryptedKey = cryptoService.decryptPrivateKey(encryptedKeyJson, derivedKeyB64);
         setMyPrivateKey(decryptedKey);
       } else {
         console.warn("Private Key locked. Messages will be encrypted but you cannot read them.");

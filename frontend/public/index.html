@@ -4,40 +4,98 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
+    <meta name="theme-color" content="#1a1a2e" />
+    <meta name="description" content="FortKnox - Secure Job Search & Professional Networking Platform" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+    <title>FortKnox | Secure Job Platform</title>
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    <!-- SECURITY: Anti-DevTools & Anti-View-Source Script -->
+    <script>
+      (function() {
+        // Disable right-click context menu
+        document.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          return false;
+        });
+
+        // Disable keyboard shortcuts for DevTools and View Source
+        document.addEventListener('keydown', function(e) {
+          // F12
+          if (e.key === 'F12' || e.keyCode === 123) {
+            e.preventDefault();
+            return false;
+          }
+          // Ctrl+Shift+I (DevTools)
+          if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i')) {
+            e.preventDefault();
+            return false;
+          }
+          // Ctrl+Shift+J (Console)
+          if (e.ctrlKey && e.shiftKey && (e.key === 'J' || e.key === 'j')) {
+            e.preventDefault();
+            return false;
+          }
+          // Ctrl+Shift+C (Element picker)
+          if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+            e.preventDefault();
+            return false;
+          }
+          // Ctrl+U (View Source)
+          if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+            e.preventDefault();
+            return false;
+          }
+          // Ctrl+S (Save page)
+          if (e.ctrlKey && (e.key === 'S' || e.key === 's')) {
+            e.preventDefault();
+            return false;
+          }
+        });
+
+        // DevTools open detection (console.log timing)
+        var devToolsOpen = false;
+        var threshold = 160;
+        setInterval(function() {
+          var start = performance.now();
+          debugger;
+          var end = performance.now();
+          if (end - start > threshold) {
+            if (!devToolsOpen) {
+              devToolsOpen = true;
+              console.clear();
+              console.log(
+                '%c⚠️ SECURITY WARNING',
+                'color: red; font-size: 40px; font-weight: bold;'
+              );
+              console.log(
+                '%cThis browser feature is intended for developers only. ' +
+                'If someone told you to paste something here, it is likely a scam. ' +
+                'All actions are logged and monitored.',
+                'font-size: 16px;'
+              );
+            }
+          } else {
+            devToolsOpen = false;
+          }
+        }, 1000);
+
+        // Disable text selection (optional extra layer)
+        document.addEventListener('selectstart', function(e) {
+          if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+          }
+        });
+
+        // Disable drag
+        document.addEventListener('dragstart', function(e) {
+          e.preventDefault();
+        });
+      })();
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
   </body>
 </html>

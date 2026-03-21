@@ -1,12 +1,15 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import os
 
-# PROFESSIONAL DATABASE: PostgreSQL
-# Connection format: postgresql://USER:PASSWORD@localhost/DB_NAME
-SQLALCHEMY_DATABASE_URL = "postgresql://secureadmin:FortKnoxPass123!@localhost/securejobdb"
+# SECURITY: Load database URL from environment variable
+SQLALCHEMY_DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://secureadmin:FortKnoxPass123!@localhost/securejobdb"
+)
 
-# Create the engine (No 'check_same_thread' needed for Postgres)
+# Create the engine
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
 # The Session Factory

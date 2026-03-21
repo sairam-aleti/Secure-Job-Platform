@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
 from datetime import datetime, timezone 
 from .database import Base
 
@@ -10,13 +10,20 @@ class User(Base):
     hashed_password = Column(String)
     full_name = Column(String)
     mobile_number = Column(String, unique=True, nullable=True) 
-    role = Column(String)
+    role = Column(String)  # "job_seeker", "recruiter", "admin", "superadmin"
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    
+    # Admin approval: admin accounts need superadmin approval for full powers
+    is_admin_approved = Column(Boolean, default=False)
     
     # OTP Security Fields
     failed_otp_attempts = Column(Integer, default=0)
     locked_until = Column(DateTime(timezone=True), nullable=True)
+    
+    # Single Session Enforcement
+    session_id = Column(String, nullable=True)  # Active JWT ID (JTI)
+    session_fingerprint = Column(String, nullable=True)  # Browser fingerprint hash
     
     # Profile Fields
     headline = Column(String, nullable=True)
@@ -43,7 +50,7 @@ class User(Base):
 class OTP(Base):
     __tablename__ = "otps"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     code = Column(String)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     is_used = Column(Boolean, default=False)
@@ -51,35 +58,35 @@ class OTP(Base):
 class Resume(Base):
     __tablename__ = "resumes"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     original_filename = Column(String)
     encrypted_filename = Column(String)
-    encryption_key = Column(String)
+    encryption_key = Column(String)  # Envelope-encrypted with master key
     nonce = Column(String)
     file_size = Column(Integer)
     extracted_skills = Column(String, nullable=True) 
     
-    # NEW: PKI Signature (Requirement H)
+    # PKI Signature (Requirement H)
     signature = Column(String, nullable=True) 
     
-    uploaded_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True, index=True)
-    recruiter_id = Column(Integer, index=True)
+    recruiter_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name = Column(String, index=True)
     description = Column(String)
     location = Column(String)
     website = Column(String, nullable=True)
     logo_url = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class Job(Base):
     __tablename__ = "jobs"
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, index=True)
-    recruiter_id = Column(Integer, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    recruiter_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title = Column(String)
     description = Column(String)
     location = Column(String)
@@ -88,25 +95,25 @@ class Job(Base):
     salary_range = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     deadline = Column(DateTime(timezone=True), nullable=True)
-    posted_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    posted_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class Application(Base):
     __tablename__ = "applications"
     
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, index=True)
-    applicant_id = Column(Integer, index=True)
-    resume_id = Column(Integer)
+    job_id = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    applicant_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="SET NULL"))
     cover_letter = Column(String, nullable=True)
     status = Column(String, default="Applied")
     applied_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    match_score = Column(Integer, default=0) # ADD THIS LINE
+    match_score = Column(Integer, default=0)
 
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
-    sender_id = Column(Integer, index=True)
-    receiver_id = Column(Integer, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    receiver_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     encrypted_content = Column(String)
     
     signature = Column(String, nullable=True) 
@@ -116,11 +123,11 @@ class Message(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True, index=True)
-    action = Column(String) # e.g., "USER_SUSPENDED"
-    performed_by = Column(String) # Email of the admin
+    action = Column(String)
+    performed_by = Column(String)
     target_user = Column(String, nullable=True)
-    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow)
-    # FOR BONUS: Integrity Hash
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # Integrity Hash (HMAC-based)
     log_hash = Column(String) 
     previous_hash = Column(String)
 
@@ -128,16 +135,33 @@ class Connection(Base):
     __tablename__ = "connections"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True) # The person sending the request
-    connection_id = Column(Integer, index=True) # The person receiving the request
-    status = Column(String) # "pending", "accepted", or "rejected"
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    connection_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status = Column(String)  # "pending", "accepted"
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class ProfileView(Base):
     __tablename__ = "profile_views"
     id = Column(Integer, primary_key=True, index=True)
-    viewer_id = Column(Integer, index=True) # Who looked
-    target_id = Column(Integer, index=True) # At whom
+    viewer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    target_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+class AdminActionQueue(Base):
+    """
+    Superadmin approval queue: When an admin requests a destructive action
+    (suspend, delete, activate), it goes here instead of executing immediately.
+    Only a superadmin can approve or reject.
+    """
+    __tablename__ = "admin_action_queue"
+    id = Column(Integer, primary_key=True, index=True)
+    action_type = Column(String)  # "suspend", "activate", "delete"
+    requested_by = Column(String)  # Admin email
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    target_user_email = Column(String)
+    status = Column(String, default="pending")  # "pending", "approved", "rejected"
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    reviewed_by = Column(String, nullable=True)  # Superadmin who acted
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
 

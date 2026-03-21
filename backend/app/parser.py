@@ -1,6 +1,9 @@
 from pypdf import PdfReader
 import io
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 def extract_text_from_pdf(file_bytes):
     """Extracts raw text from a PDF file."""
@@ -13,7 +16,7 @@ def extract_text_from_pdf(file_bytes):
                 text += content
         return text.lower()
     except Exception as e:
-        print(f"DEBUG PARSER: Text extraction failed: {e}")
+        logger.warning("Text extraction failed for uploaded PDF")
         return ""
 
 def calculate_match_score(resume_text, job_skills_data):
@@ -30,7 +33,7 @@ def calculate_match_score(resume_text, job_skills_data):
     if isinstance(job_skills_data, str):
         try:
             job_skills = json.loads(job_skills_data)
-        except:
+        except Exception:
             # Fallback: if it's a comma-separated string
             job_skills = [s.strip() for s in job_skills_data.split(',')]
     else:
@@ -45,5 +48,5 @@ def calculate_match_score(resume_text, job_skills_data):
             match_count += 1
             
     score = int((match_count / len(job_skills)) * 100)
-    print(f"DEBUG MATCHER: Found {match_count}/{len(job_skills)} matches. Score: {score}%")
+    logger.info(f"Match score calculated: {match_count}/{len(job_skills)} = {score}%")
     return score

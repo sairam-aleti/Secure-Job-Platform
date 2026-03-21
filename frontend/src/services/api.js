@@ -19,6 +19,25 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// SECURITY: Auto-logout on session conflict (401 with specific message)
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      const detail = error.response?.data?.detail || '';
+      if (detail.includes('Session expired') || detail.includes('logged in from another')) {
+        // Another device logged in — force logout on this one
+        alert('⚠️ Session terminated: You have been logged in from another device.');
+        localStorage.clear();
+        sessionStorage.clear();
+        window.location.href = '/login';
+        return Promise.reject(error);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // API Functions
 export const authAPI = {
   register: (data) => api.post('/register', data),
@@ -36,7 +55,6 @@ export const profileAPI = {
   updateProfile: (data) => api.put('/profile', data),
 };
 
-// NEW: User Directory for Networking
 export const userAPI = {
   getDirectory: (q = '', page = 1) => api.get(`/users/directory?q=${q}&page=${page}`),
   getOtherProfile: (id) => api.get(`/users/${id}/profile`),
@@ -44,7 +62,6 @@ export const userAPI = {
   deleteAccount: (data) => api.post('/users/me/delete', data), 
 };
 
-// NEW: Connection Management
 export const connectionAPI = {
   sendRequest: (receiverId) => api.post('/connections/request', { receiver_id: receiverId }),
   getPending: () => api.get('/connections/pending'),
@@ -88,6 +105,14 @@ export const adminAPI = {
   suspendUser: (id) => api.post(`/admin/suspend/${id}`),
   activateUser: (id) => api.post(`/admin/activate/${id}`),
   deleteUser: (id) => api.delete(`/admin/delete/${id}`),
+  
+  // New: Admin action queue
+  requestAction: (data) => api.post('/admin/request-action', data),
+  getActionQueue: () => api.get('/admin/action-queue'),
+  
+  // Superadmin: Review actions
+  reviewAction: (data) => api.post('/superadmin/review-action', data),
+  approveAdmin: (userId) => api.post(`/superadmin/approve-admin/${userId}`),
 };
 
 export default api;

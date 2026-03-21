@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
+import forge from 'node-forge';
 import './Auth.css';
 
 function Login() {
@@ -34,9 +35,12 @@ function Login() {
       localStorage.setItem('access_token', response.data.access_token);
       localStorage.setItem('user_email', formData.email);
       
-      // SECURITY: Save password in SESSION storage (clears when tab closes)
-      // This is needed to unlock the Private Key for E2EE messaging
-      sessionStorage.setItem('user_pwd', formData.password);
+      // SECURITY FIX: Derive key from password using PBKDF2 immediately,
+      // then store ONLY the derived key — never store the raw password.
+      // This derived key is used to decrypt the private key for E2EE messaging.
+      const salt = formData.email; // Use email as salt for deterministic derivation
+      const derivedKey = forge.pkcs5.pbkdf2(formData.password, salt, 10000, 32);
+      sessionStorage.setItem('derived_key', forge.util.encode64(derivedKey));
       
       navigate('/dashboard');
     } catch (err) {
