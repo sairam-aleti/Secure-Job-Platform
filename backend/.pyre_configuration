@@ -1,0 +1,9 @@
+{
+  "site_package_search_strategy": "all",
+  "search_path": [
+    ".",
+    "../fcs-project/lib/python3.12/site-packages"
+  ],
+  "source_directories": ["."],
+  "strict": false
+}
