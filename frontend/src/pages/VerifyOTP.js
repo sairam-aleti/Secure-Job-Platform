@@ -92,7 +92,7 @@ function VerifyOTP() {
           <p>We've sent a verification code to your email. This step confirms your identity and keeps your account secure.</p>
         </div>
         <div className="auth-hero-visual">
-          <div className="hero-placeholder">✉️</div>
+          <div className="hero-placeholder"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,7 12,13 2,7"/></svg></div>
         </div>
       </section>
 
@@ -134,10 +134,10 @@ function VerifyOTP() {
       </section>
 
       <section className="auth-features-bar">
-        <div className="auth-feature-item"><span className="auth-feature-icon">⏱️</span> Code expires in 10 min</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">🔒</span> 5 attempts max</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">🛡️</span> Rate-limited</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">✉️</span> Email verified</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">I</span> Code expires in 10 min</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">II</span> 5 attempts max</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">III</span> Rate-limited</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">IV</span> Email verified</div>
       </section>
     </>
   );

@@ -73,7 +73,7 @@ function Register() {
           <p>Join FortKnox — a platform built with enterprise-grade encryption, identity verification, and privacy controls at its core.</p>
         </div>
         <div className="auth-hero-visual">
-          <div className="hero-placeholder">🛡️</div>
+          <div className="hero-placeholder"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
         </div>
       </section>
 
@@ -124,6 +124,7 @@ function Register() {
               <select name="role" value={formData.role} onChange={handleChange}>
                 <option value="job_seeker">Job Seeker</option>
                 <option value="recruiter">Recruiter</option>
+                <option value="admin">Admin</option>
               </select>
             </div>
 
@@ -142,10 +143,10 @@ function Register() {
 
       {/* ---- Security Features Bar ---- */}
       <section className="auth-features-bar">
-        <div className="auth-feature-item"><span className="auth-feature-icon">🔐</span> AES-256 Encryption</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">🛡️</span> Argon2 Hashing</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">✉️</span> OTP Verification</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">👁️</span> Privacy Controls</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">I</span> AES-256 Encryption</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">II</span> Argon2 Hashing</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">III</span> OTP Verification</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">IV</span> Privacy Controls</div>
       </section>
     </>
   );

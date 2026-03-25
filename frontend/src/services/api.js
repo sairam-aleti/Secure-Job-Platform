@@ -27,7 +27,7 @@ api.interceptors.response.use(
       const detail = error.response?.data?.detail || '';
       if (detail.includes('Session expired') || detail.includes('logged in from another')) {
         // Another device logged in — force logout on this one
-        alert('⚠️ Session terminated: You have been logged in from another device.');
+        alert('Session terminated: You have been logged in from another device.');
         localStorage.clear();
         sessionStorage.clear();
         window.location.href = '/login';

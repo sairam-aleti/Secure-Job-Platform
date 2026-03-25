@@ -49,8 +49,8 @@ function Dashboard() {
         fetchPendingRequests(); 
       }
 
-      // FETCH SYSTEM DATA (For everyone except admin)
-      if (response.data.role !== 'admin') {
+      // FETCH SYSTEM DATA (For everyone except admin/superadmin)
+      if (response.data.role !== 'admin' && response.data.role !== 'superadmin') {
         fetchMyConnections();
         fetchProfileViewers(); 
       }
@@ -201,10 +201,10 @@ function Dashboard() {
         <a href="/dashboard" className="nav-brand">FortKnox</a>
         <div className="nav-center">
           <a href="/dashboard">Dashboard</a>
-          {profile?.role !== 'admin' && <a href="/network">Network</a>}
-          {profile?.role !== 'admin' && <a href="/jobs">Job Board</a>}
+          {profile?.role !== 'admin' && profile?.role !== 'superadmin' && <a href="/network">Network</a>}
+          {profile?.role !== 'admin' && profile?.role !== 'superadmin' && <a href="/jobs">Job Board</a>}
           {profile?.role === 'job_seeker' && <a href="/profile">Profile</a>}
-          {profile?.role === 'admin' && <a href="/admin">Admin Panel</a>}
+          {(profile?.role === 'admin' || profile?.role === 'superadmin') && <a href="/admin">Admin Panel</a>}
         </div>
         <div className="nav-actions">
           <button className="btn-logout" onClick={handleLogout}>Sign Out</button>
@@ -217,7 +217,7 @@ function Dashboard() {
           <p>
             {profile?.role === 'recruiter' 
               ? 'Manage your company and job postings' 
-              : profile?.role === 'admin' 
+              : (profile?.role === 'admin' || profile?.role === 'superadmin')
                 ? 'Platform Administration & Auditing' 
                 : 'Track your applications and resume'}
           </p>
@@ -464,7 +464,7 @@ function Dashboard() {
         )}
 
         {/* --- RECENT VIEWERS SECTION --- */}
-        {profile?.role !== 'admin' && (
+        {profile?.role !== 'admin' && profile?.role !== 'superadmin' && (
           <div className="card">
             <div className="card-header">
               <h3>Recent Profile Viewers</h3>
@@ -488,7 +488,7 @@ function Dashboard() {
         )}
 
         {/* --- YOUR NETWORK SECTION WITH REMOVE BUTTON --- */}
-        {profile?.role !== 'admin' && (
+        {profile?.role !== 'admin' && profile?.role !== 'superadmin' && (
           <div className="card">
             <div className="card-header">
               <h3>Your Network</h3>

@@ -73,7 +73,7 @@ function Login() {
           <p>Sign in to your account to access your encrypted dashboard, manage resumes, and control your privacy settings.</p>
         </div>
         <div className="auth-hero-visual">
-          <div className="hero-placeholder">🔐</div>
+          <div className="hero-placeholder"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         </div>
       </section>
 
@@ -126,10 +126,10 @@ function Login() {
       </section>
 
       <section className="auth-features-bar">
-        <div className="auth-feature-item"><span className="auth-feature-icon">🔐</span> AES-256 Encryption</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">🛡️</span> Argon2 Hashing</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">✉️</span> OTP Verification</div>
-        <div className="auth-feature-item"><span className="auth-feature-icon">👁️</span> Privacy Controls</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">I</span> AES-256 Encryption</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">II</span> Argon2 Hashing</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">III</span> OTP Verification</div>
+        <div className="auth-feature-item"><span className="auth-feature-icon">IV</span> Privacy Controls</div>
       </section>
     </>
   );
