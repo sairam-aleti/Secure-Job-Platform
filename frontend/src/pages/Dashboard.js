@@ -122,9 +122,8 @@ function Dashboard() {
 
   const fetchMyConnections = async () => {
     try {
-      const res = await userAPI.getDirectory();
-      const linked = res.data.filter(u => u.connection_status === 'accepted');
-      setConnections(linked);
+      const res = await connectionAPI.getMyConnections();
+      setConnections(res.data);
     } catch (err) { 
       console.error("Failed to fetch connections", err); 
     }

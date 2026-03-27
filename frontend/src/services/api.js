@@ -42,6 +42,7 @@ api.interceptors.response.use(
 export const authAPI = {
   register: (data) => api.post('/register', data),
   login: (data) => api.post('/login', data),
+  loginVerifyOTP: (data) => api.post('/login/verify-otp', data),
   sendOTP: (email) => api.post('/send-otp', { email }),
   verifyOTP: (data) => api.post('/verify-otp', data),
   updatePublicKey: (data) => api.post('/users/public-key', data),
@@ -53,6 +54,9 @@ export const authAPI = {
 export const profileAPI = {
   getProfile: () => api.get('/profile'),
   updateProfile: (data) => api.put('/profile', data),
+  uploadPicture: (formData) => api.put('/profile/picture', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
 };
 
 export const userAPI = {
@@ -66,6 +70,7 @@ export const connectionAPI = {
   sendRequest: (receiverId) => api.post('/connections/request', { receiver_id: receiverId }),
   getPending: () => api.get('/connections/pending'),
   updateRequest: (requestId, status) => api.put('/connections/accept', { request_id: requestId, status: status }),
+  getMyConnections: () => api.get('/connections/my'),
 };
 
 export const companyAPI = {
@@ -93,6 +98,7 @@ export const applicationAPI = {
   myApplications: () => api.get('/applications/my'),
   recruiterApplications: () => api.get('/applications/recruiter'),
   updateStatus: (id, status) => api.put(`/applications/${id}/status`, { status }),
+  updateNotes: (id, notes) => api.put(`/applications/${id}/notes`, { notes }),
 };
 
 export const messageAPI = {
@@ -106,13 +112,29 @@ export const adminAPI = {
   activateUser: (id) => api.post(`/admin/activate/${id}`),
   deleteUser: (id) => api.delete(`/admin/delete/${id}`),
   
-  // New: Admin action queue
+  // Admin action queue
   requestAction: (data) => api.post('/admin/request-action', data),
   getActionQueue: () => api.get('/admin/action-queue'),
   
   // Superadmin: Review actions
   reviewAction: (data) => api.post('/superadmin/review-action', data),
   approveAdmin: (userId) => api.post(`/superadmin/approve-admin/${userId}`),
+  
+  // Reports / Content Moderation
+  getReports: () => api.get('/admin/reports'),
+  reviewReport: (id, status) => api.put(`/admin/reports/${id}`, { status }),
+};
+
+export const reportAPI = {
+  create: (data) => api.post('/reports', data),
+};
+
+export const groupAPI = {
+  create: (data) => api.post('/groups', data),
+  myGroups: () => api.get('/groups/my'),
+  sendMessage: (groupId, data) => api.post(`/groups/${groupId}/messages`, data),
+  getMessages: (groupId) => api.get(`/groups/${groupId}/messages`),
+  getMembers: (groupId) => api.get(`/groups/${groupId}/members`),
 };
 
 export default api;

@@ -8,6 +8,7 @@ function Admin() {
   const [users, setUsers] = useState([]);
   const [logs, setLogs] = useState([]);
   const [actionQueue, setActionQueue] = useState([]);
+  const [reports, setReports] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -71,6 +72,12 @@ function Admin() {
       setUsers(results[0].data);
       setLogs(results[1].data);
       setActionQueue(results[2].data || []);
+      
+      // Fetch reports for admin/superadmin
+      try {
+        const reportsRes = await adminAPI.getReports();
+        setReports(reportsRes.data || []);
+      } catch { setReports([]); }
     } catch (err) {
       setError('Failed to load system data');
     } finally {
@@ -288,7 +295,7 @@ function Admin() {
 
         {/* TAB NAVIGATION */}
         <div style={{ display: 'flex', gap: '0', marginBottom: '24px', borderBottom: '2px solid #e2e8f0' }}>
-          {['users', 'logs', ...(isSuperAdmin ? ['requests', 'admin-approvals'] : ['my-requests'])].map(tab => (
+          {['users', 'logs', 'reports', ...(isSuperAdmin ? ['requests', 'admin-approvals'] : ['my-requests'])].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -302,6 +309,7 @@ function Admin() {
               }}>
               {tab === 'users' && 'Users'}
               {tab === 'logs' && 'Audit Logs'}
+              {tab === 'reports' && `Reports (${reports.filter(r => r.status === 'pending').length})`}
               {tab === 'requests' && `Requests (${pendingRequests.length})`}
               {tab === 'admin-approvals' && `Admin Approvals (${unapprovedAdmins.length})`}
               {tab === 'my-requests' && 'My Requests'}
@@ -395,6 +403,89 @@ function Admin() {
                         <td style={{ fontSize: '12px' }}>{new Date(log.timestamp).toLocaleString()}</td>
                         <td style={{ fontSize: '10px', fontFamily: 'monospace', color: '#6b7280' }}>
                           {log.log_hash.substring(0, 24)}...
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ---- TAB: REPORTS / CONTENT MODERATION ---- */}
+        {activeTab === 'reports' && (
+          <div className="card">
+            <div className="card-header">
+              <h3>Content Reports</h3>
+              {reports.filter(r => r.status === 'pending').length > 0 && (
+                <span className="card-badge" style={{ background: '#fef2f2', color: '#dc2626' }}>
+                  {reports.filter(r => r.status === 'pending').length} Pending
+                </span>
+              )}
+            </div>
+            <div className="admin-table-wrapper">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Reporter</th>
+                    <th>Type</th>
+                    <th>Target ID</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.length === 0 ? (
+                    <tr><td colSpan="7" style={{ textAlign: 'center', padding: '20px' }}>No reports yet.</td></tr>
+                  ) : (
+                    reports.map((r) => (
+                      <tr key={r.id}>
+                        <td>User #{r.reporter_id}</td>
+                        <td><strong>{r.target_type}</strong></td>
+                        <td>#{r.target_id}</td>
+                        <td>{r.reason}</td>
+                        <td>
+                          <span style={{
+                            padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
+                            background: r.status === 'pending' ? '#fef3c7' : r.status === 'resolved' ? '#dcfce7' : '#f3f4f6',
+                            color: r.status === 'pending' ? '#92400e' : r.status === 'resolved' ? '#166534' : '#6b7280'
+                          }}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '12px' }}>{new Date(r.created_at).toLocaleString()}</td>
+                        <td>
+                          {r.status === 'pending' ? (
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await adminAPI.reviewReport(r.id, 'resolved');
+                                    setActionMessage('Report resolved.');
+                                    await fetchData(currentUser.role);
+                                  } catch { setError('Failed to resolve report'); }
+                                }}
+                                style={{ padding: '4px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>
+                                Resolve
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await adminAPI.reviewReport(r.id, 'dismissed');
+                                    setActionMessage('Report dismissed.');
+                                    await fetchData(currentUser.role);
+                                  } catch { setError('Failed to dismiss report'); }
+                                }}
+                                style={{ padding: '4px 10px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>
+                                Dismiss
+                              </button>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#94a3b8', fontSize: '12px' }}>{r.reviewed_by || '-'}</span>
+                          )}
                         </td>
                       </tr>
                     ))

@@ -138,6 +138,7 @@ class UserListItem(BaseModel):
     role: str
     is_active: bool
     is_verified: bool
+    is_admin_approved: bool
     
     class Config:
         from_attributes = True
@@ -213,6 +214,7 @@ class ApplicationResponse(BaseModel):
 class ApplicationDetail(ApplicationResponse):
     applicant_name: str
     job_title: str
+    recruiter_notes: Optional[str] = None
 
 # --- MESSAGING SCHEMAS ---
 
@@ -343,3 +345,70 @@ class AdminActionResponse(BaseModel):
 class AdminActionReview(BaseModel):
     action_id: int
     decision: Literal["approved", "rejected"]
+
+# --- LOGIN OTP FLOW ---
+class LoginPendingResponse(BaseModel):
+    login_pending: bool = True
+    email: str
+    message: str
+
+# --- REPORT / MODERATION SCHEMAS ---
+
+class ReportCreate(BaseModel):
+    target_type: Literal["user", "job", "message"]
+    target_id: int
+    reason: str = Field(max_length=200)
+    details: Optional[str] = Field(default=None, max_length=2000)
+
+class ReportResponse(BaseModel):
+    id: int
+    reporter_id: int
+    target_type: str
+    target_id: int
+    reason: str
+    details: Optional[str]
+    status: str
+    reviewed_by: Optional[str]
+    created_at: datetime
+    resolved_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class ReportReview(BaseModel):
+    status: Literal["resolved", "dismissed"]
+
+# --- GROUP MESSAGING SCHEMAS ---
+
+class GroupCreate(BaseModel):
+    name: str = Field(max_length=100)
+    member_ids: list[int]
+
+class GroupResponse(BaseModel):
+    id: int
+    name: str
+    created_by: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class GroupMessageCreate(BaseModel):
+    encrypted_content: str = Field(max_length=50000)
+    signature: Optional[str] = Field(default=None, max_length=5000)
+
+class GroupMessageResponse(BaseModel):
+    id: int
+    group_id: int
+    sender_id: int
+    encrypted_content: str
+    signature: Optional[str] = None
+    timestamp: datetime
+    
+    class Config:
+        from_attributes = True
+
+# --- RECRUITER NOTES ---
+
+class ApplicationNotesUpdate(BaseModel):
+    notes: str = Field(max_length=5000)

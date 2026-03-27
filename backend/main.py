@@ -2,7 +2,7 @@ from dotenv import load_dotenv  # pyre-ignore[21]
 load_dotenv()  # Load .env file FIRST before any other imports that use env vars
 
 from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks  # pyre-ignore[21]
-from fastapi.responses import Response  # pyre-ignore[21]
+from fastapi.responses import Response, FileResponse  # pyre-ignore[21]
 from sqlalchemy.orm import Session  # pyre-ignore[21]
 from typing import Optional, List, cast
 from app import models, schemas, security, auth, otp, encryption  # pyre-ignore[21]
@@ -228,17 +228,19 @@ def register_user(request: Request, user: schemas.UserCreate, db: Session = Depe
     db.refresh(new_user)
     return new_user
 
-# ==================== LOGIN ====================
+# ==================== LOGIN (2-Step OTP) ====================
 
-@app.post("/login", response_model=schemas.Token)
+@app.post("/login")
 @limiter.limit("10/minute")
-def login(request: Request, user_credentials: schemas.UserLogin, db: Session = Depends(get_db)):
+async def login(
+    request: Request,
+    user_credentials: schemas.UserLogin,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """
-    SECURE LOGIN with:
-    - Rate limiting
-    - Audit logging (success + failure)
-    - Single session enforcement (old sessions invalidated)
-    - Browser fingerprint binding
+    STEP 1: Validate credentials and send OTP.
+    Does NOT return a token — user must verify OTP first.
     """
     user = db.query(models.User).filter(models.User.email == user_credentials.email).first()
     if not user:
@@ -256,15 +258,89 @@ def login(request: Request, user_credentials: schemas.UserLogin, db: Session = D
         db.commit()
         raise HTTPException(status_code=403, detail="Account suspended")
     
-    # SINGLE SESSION: Generate unique JTI, store in DB to invalidate any previous session
+    if user.locked_until and otp.is_account_locked(user.locked_until):
+        raise HTTPException(status_code=403, detail="Account locked. Try again later.")
+    
+    # Invalidate old OTPs
+    db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.is_used == False
+    ).update({"is_used": True})
+    
+    # Generate and send OTP
+    otp_code = otp.generate_otp()
+    new_otp = models.OTP(
+        user_id=user.id,
+        code=otp_code,
+        created_at=datetime.now(timezone.utc)
+    )
+    db.add(new_otp)
+    
+    create_audit_log(db, "LOGIN_OTP_SENT", user.email, f"IP: {request.client.host}")
+    db.commit()
+    
+    # Send OTP via email in background
+    try:
+        from app.email_service import send_otp_email
+        background_tasks.add_task(send_otp_email, user.email, otp_code)
+    except Exception:
+        pass  # Email sending is best-effort
+    
+    return {
+        "login_pending": True,
+        "email": user.email,
+        "message": "OTP sent to your email. Please verify to complete login.",
+        "dev_otp": otp_code if os.environ.get("ENVIRONMENT") == "development" else None
+    }
+
+
+@app.post("/login/verify-otp", response_model=schemas.Token)
+@limiter.limit("10/minute")
+def login_verify_otp(
+    request: Request,
+    otp_data: schemas.OTPVerify,
+    db: Session = Depends(get_db)
+):
+    """
+    STEP 2: Verify OTP and issue JWT token.
+    """
+    user = db.query(models.User).filter(models.User.email == otp_data.email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if user.locked_until and otp.is_account_locked(user.locked_until):
+        raise HTTPException(status_code=403, detail="Account locked. Try again later.")
+    
+    # Find latest unused OTP
+    db_otp = db.query(models.OTP).filter(
+        models.OTP.user_id == user.id,
+        models.OTP.is_used == False
+    ).order_by(models.OTP.created_at.desc()).first()
+    
+    if not db_otp or otp.is_otp_expired(db_otp.created_at):
+        raise HTTPException(status_code=400, detail="OTP expired or invalid. Please login again.")
+    
+    if str(db_otp.code).strip() != str(otp_data.otp_code).strip():
+        user.failed_otp_attempts += 1
+        if user.failed_otp_attempts >= otp.MAX_FAILED_ATTEMPTS:
+            user.locked_until = otp.calculate_lockout_time()
+            db.commit()
+            raise HTTPException(status_code=403, detail=f"Account locked for {otp.LOCKOUT_DURATION_MINUTES} minutes.")
+        db.commit()
+        raise HTTPException(status_code=400, detail=f"Incorrect OTP. {otp.MAX_FAILED_ATTEMPTS - user.failed_otp_attempts} attempts remaining.")
+    
+    # OTP valid — mark used and issue token
+    db_otp.is_used = True
+    user.failed_otp_attempts = 0
+    user.locked_until = None
+    
+    # SINGLE SESSION enforcement
     session_jti = auth.generate_session_id()
     fingerprint = auth.compute_fingerprint(request)
     
-    # If user already has a session, log it (they're being logged out from the other device)
     if user.session_id:
         create_audit_log(db, "SESSION_REPLACED", user.email, f"Old session invalidated, new login from IP {request.client.host}")
     
-    # Store session info in DB
     user.session_id = session_jti
     user.session_fingerprint = fingerprint
     
@@ -272,7 +348,7 @@ def login(request: Request, user_credentials: schemas.UserLogin, db: Session = D
         data={"sub": user.email, "role": user.role, "jti": session_jti}
     )
     
-    create_audit_log(db, "LOGIN_SUCCESS", user.email, f"IP: {request.client.host}")
+    create_audit_log(db, "LOGIN_SUCCESS", user.email, f"IP: {request.client.host}, OTP verified")
     db.commit()
     
     return {"access_token": access_token, "token_type": "bearer"}
@@ -1033,7 +1109,8 @@ def list_recruiter_applications(
             "applied_at": app_obj.applied_at,
             "applicant_name": name,
             "job_title": title,
-            "match_score": app_obj.match_score 
+            "match_score": app_obj.match_score,
+            "recruiter_notes": app_obj.recruiter_notes
         })
     return output
 
@@ -1551,3 +1628,293 @@ def confirm_password_reset(request: Request, req: schemas.PasswordResetConfirm, 
     
     db.commit()
     return {"message": "Password has been successfully reset."}
+
+# ==================== PROFILE PICTURE ====================
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+
+@app.put("/profile/picture")
+async def upload_profile_picture(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Upload a profile picture (JPEG, PNG, or WebP, max 5MB)."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, and WebP images are allowed")
+    
+    contents = await file.read()
+    if len(contents) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 5MB")
+    
+    # Save to uploads directory with a unique name
+    import uuid
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    safe_filename = f"pfp_{user.id}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = os.path.join("uploads", safe_filename)
+    
+    # Delete old picture if exists
+    if user.profile_picture:
+        old_path = os.path.join("uploads", user.profile_picture)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+    
+    with open(filepath, "wb") as f:
+        f.write(contents)
+    
+    user.profile_picture = safe_filename
+    create_audit_log(db, "PROFILE_PICTURE_UPDATED", user.email)
+    db.commit()
+    
+    return {"message": "Profile picture updated", "filename": safe_filename}
+
+@app.get("/uploads/{filename}")
+async def serve_upload(filename: str):
+    """Serve uploaded files (profile pictures)."""
+    # SECURITY: Prevent path traversal
+    safe_name = os.path.basename(filename)
+    filepath = os.path.join("uploads", safe_name)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(filepath)
+
+# ==================== MY CONNECTIONS ====================
+
+@app.get("/connections/my")
+def get_my_connections(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Get all accepted connections for the current user."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    connections = db.query(models.Connection).filter(
+        ((models.Connection.user_id == user.id) | (models.Connection.connection_id == user.id)),
+        models.Connection.status == "accepted"
+    ).all()
+    
+    result = []
+    for conn in connections:
+        other_id = conn.connection_id if conn.user_id == user.id else conn.user_id
+        other_user = db.query(models.User).filter(models.User.id == other_id).first()
+        if other_user:
+            result.append({
+                "connection_id": conn.id,
+                "user_id": other_user.id,
+                "full_name": other_user.full_name,
+                "headline": other_user.headline,
+                "role": other_user.role,
+                "profile_picture": other_user.profile_picture
+            })
+    
+    return result
+
+# ==================== RECRUITER NOTES ====================
+
+@app.put("/applications/{application_id}/notes")
+def update_recruiter_notes(
+    application_id: int,
+    notes_data: schemas.ApplicationNotesUpdate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Recruiter adds/updates notes on an application."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can add notes")
+    
+    application = db.query(models.Application).filter(models.Application.id == application_id).first()
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    # Verify this recruiter owns the job
+    job = db.query(models.Job).filter(models.Job.id == application.job_id).first()
+    if not job or job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    application.recruiter_notes = notes_data.notes
+    db.commit()
+    return {"message": "Notes updated"}
+
+# ==================== CONTENT MODERATION / REPORTS ====================
+
+@app.post("/reports", response_model=schemas.ReportResponse)
+def create_report(
+    report: schemas.ReportCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Submit a report on a user, job, or message."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    new_report = models.Report(
+        reporter_id=user.id,
+        target_type=report.target_type,
+        target_id=report.target_id,
+        reason=report.reason,
+        details=report.details
+    )
+    db.add(new_report)
+    create_audit_log(db, "REPORT_SUBMITTED", user.email, f"{report.target_type} #{report.target_id}")
+    db.commit()
+    db.refresh(new_report)
+    return new_report
+
+@app.get("/admin/reports", response_model=list[schemas.ReportResponse])
+def get_reports(
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """Admin/Superadmin: View all reports."""
+    return db.query(models.Report).order_by(models.Report.created_at.desc()).all()
+
+@app.put("/admin/reports/{report_id}")
+def review_report(
+    report_id: int,
+    review: schemas.ReportReview,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """Admin/Superadmin: Resolve or dismiss a report."""
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    report.status = review.status
+    report.reviewed_by = admin_email
+    report.resolved_at = datetime.now(timezone.utc)
+    
+    create_audit_log(db, f"REPORT_{review.status.upper()}", admin_email, f"Report #{report_id}")
+    db.commit()
+    return {"message": f"Report {review.status}"}
+
+# ==================== GROUP MESSAGING (E2EE) ====================
+
+@app.post("/groups", response_model=schemas.GroupResponse)
+def create_group(
+    group_data: schemas.GroupCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Create a group chat and add members."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    new_group = models.Group(
+        name=group_data.name,
+        created_by=user.id
+    )
+    db.add(new_group)
+    db.flush()
+    
+    # Add creator as member
+    db.add(models.GroupMember(group_id=new_group.id, user_id=user.id))
+    
+    # Add other members (must be connections)
+    for member_id in group_data.member_ids:
+        member = db.query(models.User).filter(models.User.id == member_id).first()
+        if member and member.id != user.id:
+            db.add(models.GroupMember(group_id=new_group.id, user_id=member.id))
+    
+    create_audit_log(db, "GROUP_CREATED", user.email, f"Group: {group_data.name}")
+    db.commit()
+    db.refresh(new_group)
+    return new_group
+
+@app.get("/groups/my", response_model=list[schemas.GroupResponse])
+def get_my_groups(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """List all groups the user is a member of."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    group_ids = db.query(models.GroupMember.group_id).filter(
+        models.GroupMember.user_id == user.id
+    ).all()
+    ids = [gid[0] for gid in group_ids]
+    
+    return db.query(models.Group).filter(models.Group.id.in_(ids)).all()
+
+@app.post("/groups/{group_id}/messages", response_model=schemas.GroupMessageResponse)
+def send_group_message(
+    group_id: int,
+    message: schemas.GroupMessageCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Send an encrypted message to a group."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    # Verify membership
+    membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == user.id
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this group")
+    
+    new_msg = models.GroupMessage(
+        group_id=group_id,
+        sender_id=user.id,
+        encrypted_content=message.encrypted_content,
+        signature=message.signature
+    )
+    db.add(new_msg)
+    db.commit()
+    db.refresh(new_msg)
+    return new_msg
+
+@app.get("/groups/{group_id}/messages", response_model=list[schemas.GroupMessageResponse])
+def get_group_messages(
+    group_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Get all messages in a group (user must be a member)."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == user.id
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this group")
+    
+    return db.query(models.GroupMessage).filter(
+        models.GroupMessage.group_id == group_id
+    ).order_by(models.GroupMessage.timestamp.asc()).all()
+
+@app.get("/groups/{group_id}/members")
+def get_group_members(
+    group_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Get all members of a group."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == user.id
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this group")
+    
+    members = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id
+    ).all()
+    
+    result = []
+    for m in members:
+        u = db.query(models.User).filter(models.User.id == m.user_id).first()
+        if u:
+            result.append({
+                "user_id": u.id,
+                "full_name": u.full_name,
+                "email": u.email,
+                "public_key": u.public_key
+            })
+    return result

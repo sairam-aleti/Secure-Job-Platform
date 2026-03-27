@@ -108,6 +108,7 @@ class Application(Base):
     status = Column(String, default="Applied")
     applied_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     match_score = Column(Integer, default=0)
+    recruiter_notes = Column(String, nullable=True)
 
 class Message(Base):
     __tablename__ = "messages"
@@ -165,3 +166,42 @@ class AdminActionQueue(Base):
     reviewed_by = Column(String, nullable=True)  # Superadmin who acted
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
+class Report(Base):
+    """Content moderation: users can report profiles, jobs, or messages."""
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    target_type = Column(String)  # "user", "job", "message"
+    target_id = Column(Integer)
+    reason = Column(String)
+    details = Column(String, nullable=True)
+    status = Column(String, default="pending")  # "pending", "reviewed", "resolved", "dismissed"
+    reviewed_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+class Group(Base):
+    """Group for group E2EE messaging."""
+    __tablename__ = "groups"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class GroupMember(Base):
+    """Membership table for groups."""
+    __tablename__ = "group_members"
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    joined_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class GroupMessage(Base):
+    """Encrypted group messages."""
+    __tablename__ = "group_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    encrypted_content = Column(String)  # E2EE ciphertext
+    signature = Column(String, nullable=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
