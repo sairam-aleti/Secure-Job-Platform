@@ -1,4 +1,20 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap');
+/* ========================================
+   FORTKNOX — CyFocus Global Design System
+   ======================================== */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+  --cy-bg: #FFFFFF;
+  --cy-bg-off: #F9FAFB;
+  --cy-grid: rgba(10, 102, 194, 0.08);
+  --cy-text-main: #001328;
+  --cy-text-mute: #6C7A89;
+  --cy-brand: #0A66C2;
+  --cy-brand-dark: #004182;
+  --cy-border: rgba(10, 102, 194, 0.15);
+  --cy-glass-bg: rgba(255, 255, 255, 0.75);
+  --cy-shadow: 0px 32px 64px -12px rgba(10, 102, 194, 0.15);
+}
 
 *,
 *::before,
@@ -15,13 +31,19 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #1a1a2e;
-  background: #ffffff;
+  color: var(--cy-text-main);
+  background: var(--cy-bg);
   line-height: 1.6;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: var(--cy-brand);
+  color: #fff;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+  font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
 
@@ -33,4 +55,110 @@ a {
 img {
   max-width: 100%;
   display: block;
+}
+
+/* ---- HUD Decorators ---- */
+.cy-corner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--cy-brand);
+  border-style: solid;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.cy-corner-tl { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.cy-corner-tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+.cy-corner-bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+.cy-corner-br { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+.cy-dot-grid {
+  background-image: radial-gradient(var(--cy-border) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* ========================================
+   GLOBAL NAVIGATION BAR (Sync with Dashboard)
+   ======================================== */
+.app-nav {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px dashed var(--cy-border);
+  padding: 0 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 72px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+}
+
+.nav-brand {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--cy-text-main);
+  letter-spacing: -1px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.nav-brand span {
+  color: var(--cy-brand);
+}
+
+.nav-center {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+}
+
+.nav-center a {
+  font-size: 13px;
+  color: var(--cy-text-mute);
+  font-weight: 500;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: color 0.3s;
+}
+
+.nav-center a:hover,
+.nav-center a.active {
+  color: var(--cy-brand);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-nav-outline {
+  padding: 12px 24px;
+  border: 1px solid var(--cy-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  color: var(--cy-brand-dark);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'Space Grotesk', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-nav-outline:hover {
+  background: var(--cy-bg-off);
+  border-color: var(--cy-brand);
+  color: var(--cy-brand);
 }

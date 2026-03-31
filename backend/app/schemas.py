@@ -88,6 +88,7 @@ class ResumeResponse(BaseModel):
         from_attributes = True
 
 class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(default=None, max_length=100)
     headline: Optional[str] = Field(default=None, max_length=200)
     location: Optional[str] = Field(default=None, max_length=100)
     bio: Optional[str] = Field(default=None, max_length=2000)
@@ -103,6 +104,16 @@ class ProfileUpdate(BaseModel):
     experience_privacy: Optional[Literal["public", "connections", "private"]] = None
     education_privacy: Optional[Literal["public", "connections", "private"]] = None
     share_view_history: Optional[bool] = None
+    profile_picture: Optional[str] = None
+
+    @field_validator('full_name')
+    @classmethod
+    def validate_full_name(cls, v):
+        if v is not None:
+            if not re.match(r'^[a-zA-Z\s\.\-\']+$', v):
+                raise ValueError('Full name can only contain letters, spaces, dots, hyphens, and apostrophes')
+            return v.strip()
+        return v
 
 class ProfileResponse(BaseModel):
     id: int
@@ -187,6 +198,7 @@ class JobResponse(BaseModel):
     salary_range: Optional[str]
     posted_at: datetime
     is_active: bool
+    deadline: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -412,3 +424,24 @@ class GroupMessageResponse(BaseModel):
 
 class ApplicationNotesUpdate(BaseModel):
     notes: str = Field(max_length=5000)
+
+# --- RECRUITER SHORTLIST REMOVED ---
+
+# --- BLOCKCHAIN SCHEMAS ---
+
+class BlockResponse(BaseModel):
+    id: int
+    block_index: int
+    timestamp: datetime
+    log_count: int
+    block_hash: str
+    previous_block_hash: str
+    
+    class Config:
+        from_attributes = True
+
+class ChainVerifyResponse(BaseModel):
+    is_valid: bool
+    total_blocks: int
+    message: str
+    broken_at: Optional[int] = None

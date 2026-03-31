@@ -957,6 +957,63 @@ def list_companies(db: Session = Depends(get_db)):
 
 # ==================== JOB ====================
 
+@app.post("/groups", response_model=schemas.GroupResponse)
+def create_group(
+    group: schemas.GroupCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY (Governance): Create a new secure group chat."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can create group channels")
+        
+    new_group = models.Group(name=group.name, created_by=user.id)
+    db.add(new_group)
+    db.commit()
+    db.refresh(new_group)
+    
+    # Add creator as member
+    creator_member = models.GroupMember(group_id=new_group.id, user_id=user.id)
+    db.add(creator_member)
+    
+    # Add invited members
+    for uid in group.member_ids:
+        db.add(models.GroupMember(group_id=new_group.id, user_id=uid))
+    
+    create_audit_log(db, "GROUP_CREATED", user.email, f"Group: {group.name}")
+    db.commit()
+    return new_group
+
+@app.delete("/groups/{group_id}")
+def delete_group(
+    group_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: Permanently remove a group channel and its history."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can delete groups")
+    
+    group = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+        
+    # Authorized if recruiter is a member or the creator
+    membership = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == user.id
+    ).first()
+    
+    if not membership and group.created_by != user.id:
+        raise HTTPException(status_code=403, detail="You are not authorized to delete this group")
+
+    db.delete(group)
+    create_audit_log(db, "GROUP_DELETED", user.email, f"Group Name: {group.name}")
+    db.commit()
+    return {"message": "Group deleted successfully"}
+
 @app.post("/jobs", response_model=schemas.JobResponse)
 def post_job(
     job: schemas.JobCreate,
