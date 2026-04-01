@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { jobAPI, companyAPI } from '../services/api';
+import { motion } from 'framer-motion';
 import './Dashboard.css';
 
 function PostJob() {
@@ -12,11 +13,13 @@ function PostJob() {
     location: '',
     employment_type: 'Full-time',
     skills_required: '',
-    salary_range: '',
+    salary_amount: '',
+    currency: 'USD',
+    deadline: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState(''); // NEW
+  const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -36,10 +39,7 @@ function PostJob() {
   };
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
@@ -49,26 +49,37 @@ function PostJob() {
     setSuccessMessage('');
 
     try {
-      // Format skills as JSON string array
       const skillsArray = formData.skills_required.split(',').map(s => s.trim());
+      const payload = { 
+        ...formData, 
+        skills_required: JSON.stringify(skillsArray),
+        salary_range: `${formData.currency} ${formData.salary_amount}`
+      };
+      // Remove temporary fields
+      delete payload.salary_amount;
+      delete payload.currency;
       
-      await jobAPI.create({
-        ...formData,
-        skills_required: JSON.stringify(skillsArray)
-      });
-      
-      setSuccessMessage('Job posted successfully! Redirecting...'); // NEW UI Message
-      setTimeout(() => navigate('/dashboard'), 2000); // Redirect after 2s
+      // Send deadline as ISO string or null
+      if (payload.deadline) {
+        payload.deadline = new Date(payload.deadline).toISOString();
+      } else {
+        payload.deadline = null;
+      }
+      await jobAPI.create(payload);
+      setSuccessMessage('Job posted successfully! Redirecting...');
+      setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to post job');
-      setLoading(false); // Only stop loading on error
+      setLoading(false);
     }
   };
 
   return (
     <div className="app-layout">
+      <div className="app-grid-bg"></div>
+
       <nav className="app-nav">
-        <a href="/dashboard" className="nav-brand">FortKnox</a>
+        <a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a>
         <div className="nav-center">
           <a href="/dashboard">Dashboard</a>
         </div>
@@ -79,38 +90,25 @@ function PostJob() {
 
       <div className="page-hero">
         <div className="page-hero-inner">
+          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>JOB_POSTING</div>
           <h2>Post a New Job</h2>
           <p>Find the best talent for your company</p>
         </div>
       </div>
 
       <main className="app-content">
-        <div className="card">
+        <motion.div className="card" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Company</label>
-              <select 
-                name="company_id" 
-                value={formData.company_id} 
-                onChange={handleChange}
-                required
-              >
-                {companies.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
+              <select name="company_id" value={formData.company_id} onChange={handleChange} required>
+                {companies.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
               </select>
             </div>
 
             <div className="form-group">
               <label>Job Title</label>
-              <input
-                type="text"
-                name="title"
-                value={formData.title}
-                onChange={handleChange}
-                required
-                placeholder="e.g. Senior Security Analyst"
-              />
+              <input type="text" name="title" value={formData.title} onChange={handleChange} required placeholder="e.g. Senior Security Analyst" />
             </div>
 
             <div className="form-row">
@@ -125,60 +123,58 @@ function PostJob() {
               </div>
               <div className="form-group">
                 <label>Location</label>
-                <input
-                  type="text"
-                  name="location"
-                  value={formData.location}
-                  onChange={handleChange}
-                  required
-                  placeholder="e.g. Remote / New York"
-                />
+                <input type="text" name="location" value={formData.location} onChange={handleChange} required placeholder="e.g. Remote / New York" />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Salary Range</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <select 
+                    name="currency" 
+                    value={formData.currency} 
+                    onChange={handleChange}
+                    style={{ flex: '0 0 80px' }}
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="INR">INR (₹)</option>
+                  </select>
+                  <input 
+                    type="text" 
+                    name="salary_amount" 
+                    value={formData.salary_amount} 
+                    onChange={handleChange} 
+                    placeholder="e.g. 100k - 120k" 
+                    style={{ flex: 1 }}
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Application Deadline (Optional)</label>
+                <input type="datetime-local" name="deadline" value={formData.deadline} onChange={handleChange} />
               </div>
             </div>
 
             <div className="form-group">
-              <label>Salary Range</label>
-              <input
-                type="text"
-                name="salary_range"
-                value={formData.salary_range}
-                onChange={handleChange}
-                placeholder="e.g. $100k - $120k"
-              />
-            </div>
-
-            <div className="form-group">
               <label>Required Skills (comma separated)</label>
-              <input
-                type="text"
-                name="skills_required"
-                value={formData.skills_required}
-                onChange={handleChange}
-                required
-                placeholder="e.g. Python, Linux, Burp Suite"
-              />
+              <input type="text" name="skills_required" value={formData.skills_required} onChange={handleChange} required placeholder="e.g. Python, Linux, Burp Suite" />
             </div>
 
             <div className="form-group">
               <label>Job Description</label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                required
-                placeholder="Describe the role responsibilities..."
-                rows="6"
-              />
+              <textarea name="description" value={formData.description} onChange={handleChange} required placeholder="Describe the role responsibilities..." rows="6" />
             </div>
 
-            {successMessage && <div className="success-message">{successMessage}</div>} {/* NEW */}
+            {successMessage && <div className="success-message">{successMessage}</div>}
             {error && <div className="error-message">{error}</div>}
 
             <button type="submit" disabled={loading}>
               {loading ? 'Posting...' : 'Post Job'}
             </button>
           </form>
-        </div>
+        </motion.div>
       </main>
     </div>
   );

@@ -1,0 +1,603 @@
+/* CYFOCUS LIGHT THEME / LINKEDIN PALETTE CSS */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+  --cy-bg: #FFFFFF;
+  --cy-bg-off: #F9FAFB;
+  --cy-grid: rgba(10, 102, 194, 0.08);
+  /* Faint blue grid */
+  --cy-text-main: #001328;
+  --cy-text-mute: #6C7A89;
+  --cy-brand: #0A66C2;
+  /* LinkedIn Blue */
+  --cy-brand-dark: #004182;
+  --cy-border: rgba(10, 102, 194, 0.15);
+  /* Technical lines */
+  --cy-glass-bg: rgba(255, 255, 255, 0.75);
+  --cy-shadow: 0px 32px 64px -12px rgba(10, 102, 194, 0.15);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--cy-bg);
+  color: var(--cy-text-main);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--cy-brand);
+  color: #fff;
+}
+
+/* 1px Graph Paper Grid Background */
+.cy-grid-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-size: 60px 60px;
+  background-image:
+    linear-gradient(to right, var(--cy-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--cy-grid) 1px, transparent 1px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Deep Radial Blur Glows representing data processing */
+.cy-glow {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(10, 102, 194, 0.15) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.cy-wrapper {
+  position: relative;
+  z-index: 5;
+  width: 100%;
+}
+
+.cy-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 60px;
+  position: relative;
+  border-left: 1px dashed var(--cy-border);
+  border-right: 1px dashed var(--cy-border);
+}
+
+/* Monospace Corner / Tech Labels */
+.cy-tech-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--cy-brand);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  position: absolute;
+}
+
+.ctl-top-left {
+  top: -20px;
+  left: 0;
+}
+
+.ctl-top-right {
+  top: -20px;
+  right: 0;
+}
+
+.ctl-bot-left {
+  bottom: -24px;
+  left: 0;
+}
+
+/* Corner Crosshairs (+) mimicking technical frames */
+.cy-crosshair::before,
+.cy-crosshair::after {
+  content: "";
+  position: absolute;
+  background: var(--cy-brand-dark);
+}
+
+.cross-tl {
+  top: -6px;
+  left: -6px;
+}
+
+.cross-tr {
+  top: -6px;
+  right: -6px;
+}
+
+.cross-bl {
+  bottom: -6px;
+  left: -6px;
+}
+
+.cross-br {
+  bottom: -6px;
+  right: -6px;
+}
+
+.cross-h::before {
+  width: 13px;
+  height: 1px;
+  top: 6px;
+  left: 0;
+}
+
+.cross-h::after {
+  width: 1px;
+  height: 13px;
+  top: 0;
+  left: 6px;
+}
+
+
+/* Nav */
+.cy-nav {
+  position: relative;
+  padding: 32px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--cy-border);
+}
+
+.cy-brand {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--cy-text-main);
+  text-decoration: none;
+  letter-spacing: -1px;
+}
+
+.cy-brand span {
+  color: var(--cy-brand);
+}
+
+.cy-nav-links {
+  display: flex;
+  gap: 48px;
+}
+
+.cy-nav-links a {
+  text-decoration: none;
+  color: var(--cy-text-mute);
+  font-weight: 500;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: color 0.3s;
+}
+
+.cy-nav-links a:hover {
+  color: var(--cy-brand);
+}
+
+.cy-nav-auth {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.cy-btn {
+  padding: 12px 24px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.3s;
+  cursor: pointer;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.cy-btn-outline {
+  background: var(--cy-glass-bg);
+  color: var(--cy-brand-dark);
+  border: 1px solid var(--cy-border);
+  backdrop-filter: blur(10px);
+}
+
+.cy-btn-outline:hover {
+  background: var(--cy-bg-off);
+  border-color: var(--cy-brand);
+}
+
+.cy-btn-primary {
+  background: var(--cy-brand);
+  color: #fff;
+  border: 1px solid var(--cy-brand);
+  box-shadow: 0 8px 16px rgba(10, 102, 194, 0.2);
+}
+
+.cy-btn-primary:hover {
+  background: var(--cy-brand-dark);
+  box-shadow: 0 12px 24px rgba(10, 102, 194, 0.3);
+}
+
+/* Hero CyFocus Complex Setup */
+.cy-hero {
+  min-height: 90vh;
+  display: flex;
+  position: relative;
+  padding: 80px 0;
+}
+
+/* Left Typography */
+.cy-hero-left {
+  flex: 0 0 45%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  z-index: 10;
+  padding-right: 48px;
+}
+
+.cy-h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(64px, 6vw, 96px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -3px;
+  color: var(--cy-text-main);
+  margin-bottom: 24px;
+}
+
+.cy-h1 span {
+  display: inline-block;
+}
+
+.cy-hero-p {
+  font-size: 18px;
+  color: var(--cy-text-mute);
+  max-width: 440px;
+  line-height: 1.7;
+  margin-bottom: 48px;
+  border-left: 2px solid var(--cy-brand);
+  padding-left: 20px;
+}
+
+/* Right Dashboard Bouncing Stack */
+.cy-hero-right {
+  flex: 1;
+  position: relative;
+  min-height: 600px;
+}
+
+/* Glass Panels (The CyFocus Look) */
+.cy-glass-panel {
+  background: var(--cy-glass-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-top: 1px solid rgba(255, 255, 255, 1);
+  border-left: 1px solid rgba(255, 255, 255, 1);
+  border-radius: 16px;
+  box-shadow:
+    0px 24px 64px -12px rgba(10, 102, 194, 0.15),
+    inset 0px 4px 20px rgba(255, 255, 255, 0.6);
+  position: relative;
+  overflow: hidden;
+}
+
+.cy-glass-panel::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  border: 1px dashed var(--cy-border);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* --- THE NEW HERO BOUNCING STAT CARDS --- */
+.cy-bouncing-card {
+  position: absolute;
+  width: 420px;
+  padding: 32px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  box-shadow: 0 32px 64px -12px rgba(10, 102, 194, 0.1), 0 0 0 1px rgba(10, 102, 194, 0.05);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.cy-card-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--cy-brand-dark);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.cy-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #E6F4EA;
+  color: #137333;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 99px;
+  margin-top: 24px;
+  margin-bottom: 24px;
+}
+
+.cy-progress-container {
+  margin-bottom: 16px;
+}
+
+.cy-progress-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--cy-text-mute);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.cy-progress-track {
+  width: 100%;
+  height: 8px;
+  background: #F1F3F5;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.cy-progress-fill {
+  height: 100%;
+  background: var(--cy-brand-dark);
+  border-radius: 99px;
+}
+
+.cy-progress-fill.green {
+  background: #137333;
+}
+
+.cy-stat-chips {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.cy-stat-chip {
+  flex: 1;
+  padding: 12px;
+  background: #F8F9FA;
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid rgba(10, 102, 194, 0.05);
+}
+
+.cy-stat-chip-num {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--cy-brand);
+  margin-bottom: 2px;
+}
+
+.cy-stat-chip-label {
+  font-size: 11px;
+  color: var(--cy-text-mute);
+  font-weight: 500;
+}
+
+/* Faint spinning dashed circle in cards */
+.cy-card-spinning-graphic {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 2px dashed rgba(10, 102, 194, 0.2);
+  pointer-events: none;
+}
+
+
+/* CyFocus Abstract Sections */
+.cy-section {
+  padding: 160px 0;
+  position: relative;
+  border-bottom: 1px dashed var(--cy-border);
+}
+
+.cy-sec-header {
+  margin-bottom: 30px;
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+}
+
+.cy-sec-num {
+  font-family: 'JetBrains Mono';
+  font-size: 14px;
+  color: var(--cy-brand);
+  padding: 8px 16px;
+  border: 1px solid var(--cy-brand);
+  border-radius: 4px;
+}
+
+.cy-sec-h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  max-width: 600px;
+}
+
+/* CyFocus Grid Layout (Staggered technical blocks) */
+.cy-bento {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 32px;
+}
+
+.cy-c-block {
+  background: var(--cy-bg);
+  border: 1px solid var(--cy-border);
+  position: relative;
+  padding: 48px;
+  transition: box-shadow 0.4s;
+  cursor: pointer;
+}
+
+.cy-c-block:hover {
+  box-shadow: var(--cy-shadow);
+}
+
+.cy-c-svg {
+  position: absolute;
+  right: 24px;
+  top: 24px;
+  opacity: 0.1;
+}
+
+.cy-c-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.cy-c-desc {
+  font-size: 15px;
+  color: var(--cy-text-mute);
+  line-height: 1.6;
+}
+
+/* Floating dot animations */
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--cy-brand);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--cy-brand);
+}
+
+/* Forms - Contacts */
+.cy-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.cy-input-group label {
+  font-family: 'JetBrains Mono';
+  font-size: 12px;
+  color: var(--cy-text-mute);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.cy-input,
+.cy-textarea {
+  width: 100%;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px dashed var(--cy-border);
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  color: var(--cy-text-main);
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.cy-input:focus,
+.cy-textarea:focus {
+  border: 1px solid var(--cy-brand);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 4px rgba(10, 102, 194, 0.1);
+}
+
+.cy-textarea {
+  resize: vertical;
+  min-height: 150px;
+}
+
+/* Utilities */
+.span-4 {
+  grid-column: span 4;
+}
+
+.span-6 {
+  grid-column: span 6;
+}
+
+.span-8 {
+  grid-column: span 8;
+}
+
+.span-12 {
+  grid-column: span 12;
+}
+
+@media (max-width: 1024px) {
+  .cy-hero {
+    flex-direction: column;
+    padding-top: 120px;
+  }
+
+  .cy-hero-left {
+    margin-bottom: 80px;
+    padding-right: 0;
+  }
+
+  .cy-h1 {
+    font-size: 64px;
+  }
+
+  .cy-hero-right {
+    width: 100%;
+    min-height: auto;
+  }
+
+  .cy-bouncing-card {
+    position: relative;
+    margin-bottom: 32px;
+    width: 100%;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+  }
+
+  .span-4,
+  .span-6,
+  .span-8 {
+    grid-column: span 12;
+  }
+}

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { userAPI } from '../services/api';
+import { motion } from 'framer-motion';
 import './Dashboard.css';
 
 function ViewProfile() {
@@ -10,11 +11,7 @@ function ViewProfile() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchProfile();
-  }, [userId]);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       const res = await userAPI.getOtherProfile(userId);
       setTargetProfile(res.data);
@@ -24,13 +21,18 @@ function ViewProfile() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
-  if (loading) return <div className="app-layout"><main className="app-content"><p style={{textAlign:'center'}}>Loading secure profile...</p></main></div>;
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  if (loading) return <div className="app-layout"><div className="app-grid-bg"></div><main className="app-content"><p style={{textAlign:'center', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', marginTop: '80px'}}>Loading secure profile...</p></main></div>;
 
   if (error || !targetProfile) {
     return (
       <div className="app-layout">
+        <div className="app-grid-bg"></div>
         <main className="app-content">
           <div className="error-card">
             <h2>Access Restricted</h2>
@@ -42,7 +44,6 @@ function ViewProfile() {
     );
   }
 
-  // Helper to format restricted fields
   const formatField = (value, fallback = "Not specified") => {
     if (value === "RESTRICTED_BY_PRIVACY") return "Information restricted by user privacy settings.";
     return value || fallback;
@@ -50,8 +51,10 @@ function ViewProfile() {
 
   return (
     <div className="app-layout">
+      <div className="app-grid-bg"></div>
+
       <nav className="app-nav">
-        <a href="/dashboard" className="nav-brand">FortKnox</a>
+        <a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a>
         <div className="nav-center">
             <a href="/dashboard">Dashboard</a>
             <a href="/network">Network</a>
@@ -63,15 +66,15 @@ function ViewProfile() {
 
       <div className="page-hero">
         <div className="page-hero-inner">
+          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>USER_PROFILE</div>
           <h2>{targetProfile.full_name}</h2>
-          <p>{targetProfile.headline || 'Professional Member'}</p>
+          <p style={{ borderLeft: 'none', paddingLeft: 0 }}>{targetProfile.headline || 'Professional Member'}</p>
           
-          {/* NEW: MUTUAL CONNECTIONS DISPLAY */}
-          <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <span className="card-badge" style={{ background: '#eef2ff', color: '#3461c7' }}>
+          <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <span className="card-badge" style={{ background: 'rgba(10,102,194,0.08)', color: 'var(--cy-brand)' }}>
                 {targetProfile.role.replace('_', ' ')}
             </span>
-            <span style={{ fontSize: '14px', color: '#3461c7', fontWeight: '600' }}>
+            <span style={{ fontSize: '12px', color: 'var(--cy-brand)', fontWeight: '700', fontFamily: 'JetBrains Mono, monospace' }}>
                 {targetProfile.mutual_connections} Mutual Connection{targetProfile.mutual_connections !== 1 ? 's' : ''}
             </span>
           </div>
@@ -79,23 +82,25 @@ function ViewProfile() {
       </div>
 
       <main className="app-content">
-        <div className="card">
+        <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div className="card-header"><h3>Professional Bio</h3></div>
           <p style={{ 
-            color: targetProfile.bio === "RESTRICTED_BY_PRIVACY" ? '#6b7280' : '#1a1a2e',
-            fontStyle: targetProfile.bio === "RESTRICTED_BY_PRIVACY" ? 'italic' : 'normal'
+            color: targetProfile.bio === "RESTRICTED_BY_PRIVACY" ? 'var(--cy-text-mute)' : 'var(--cy-text-main)',
+            fontStyle: targetProfile.bio === "RESTRICTED_BY_PRIVACY" ? 'italic' : 'normal',
+            fontFamily: targetProfile.bio === "RESTRICTED_BY_PRIVACY" ? 'JetBrains Mono, monospace' : 'Inter, sans-serif',
+            fontSize: '14px', lineHeight: '1.7'
           }}>
             {formatField(targetProfile.bio)}
           </p>
-        </div>
+        </motion.div>
 
-        <div className="card">
+        <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="card-header"><h3>Professional Details</h3></div>
           <div className="profile-info">
             <div className="profile-field">
                 <span className="profile-field-label">Location</span>
                 <span className="profile-field-value" style={{ 
-                    color: targetProfile.location === "RESTRICTED_BY_PRIVACY" ? '#6b7280' : '#1a1a2e' 
+                    color: targetProfile.location === "RESTRICTED_BY_PRIVACY" ? 'var(--cy-text-mute)' : 'var(--cy-text-main)' 
                 }}>
                     {targetProfile.location === "RESTRICTED_BY_PRIVACY" ? "Private" : (targetProfile.location || "Not specified")}
                 </span>
@@ -103,15 +108,15 @@ function ViewProfile() {
             <div className="profile-field">
                 <span className="profile-field-label">Skills</span>
                 <span className="profile-field-value" style={{ 
-                    color: targetProfile.skills === "RESTRICTED_BY_PRIVACY" ? '#6b7280' : '#1a1a2e' 
+                    color: targetProfile.skills === "RESTRICTED_BY_PRIVACY" ? 'var(--cy-text-mute)' : 'var(--cy-text-main)' 
                 }}>
                     {targetProfile.skills === "RESTRICTED_BY_PRIVACY" ? "Private" : (targetProfile.skills || "Not specified")}
                 </span>
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        <div className="card">
+        <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
           <div className="card-header"><h3>Experience & Education</h3></div>
           <div className="profile-info">
             <div className="profile-field">
@@ -127,7 +132,7 @@ function ViewProfile() {
                 </span>
             </div>
           </div>
-        </div>
+        </motion.div>
       </main>
     </div>
   );

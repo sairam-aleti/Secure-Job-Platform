@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import VirtualKeyboard from '../components/VirtualKeyboard';
+import { motion } from 'framer-motion';
 import './Auth.css';
 
 function ForgotPassword() {
-  const [step, setStep] = useState(1); // Step 1: Email, Step 2: OTP & New Password
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -14,7 +15,6 @@ function ForgotPassword() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // --- STEP 1: REQUEST OTP ---
   const handleRequestOTP = async (e) => {
     e.preventDefault();
     setError('');
@@ -23,7 +23,7 @@ function ForgotPassword() {
     try {
       await authAPI.requestPasswordReset(email);
       setSuccess('If the email exists, a reset code has been sent. Check your inbox.');
-      setStep(2); // Move to OTP entry
+      setStep(2);
     } catch (err) {
       setError('Network error. Please try again.');
     } finally {
@@ -31,7 +31,6 @@ function ForgotPassword() {
     }
   };
 
-  // --- STEP 2: VIRTUAL KEYBOARD LOGIC ---
   const handleOTPKeyPress = (key) => {
     if (otpCode.length < 6) {
       setOtpCode(prev => prev + key);
@@ -46,7 +45,6 @@ function ForgotPassword() {
     setOtpCode('');
   };
 
-  // --- STEP 3: SUBMIT NEW PASSWORD ---
   const handleResetSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -81,97 +79,109 @@ function ForgotPassword() {
 
   return (
     <>
-      <nav className="auth-navbar">
-        <a href="/" className="auth-navbar-brand">FortKnox</a>
-        <div className="auth-navbar-right">
-          <a href="/login" className="btn-nav-login">Login</a>
-        </div>
-      </nav>
+      <div className="auth-grid-bg"></div>
+      <div className="auth-wrapper">
 
-      <section className="auth-hero" style={{ minHeight: 'auto', padding: '40px' }}>
-        <div className="auth-hero-text" style={{ textAlign: 'center', margin: '0 auto' }}>
-          <h2>Reset Password</h2>
-          <p>Secure account recovery via Email OTP and Virtual Keyboard.</p>
-        </div>
-      </section>
+        <nav className="auth-navbar">
+          <a href="/" className="auth-navbar-brand">Fort<span>Knox</span></a>
+          <div className="auth-navbar-right">
+            <a href="/login" className="btn-nav-login">Login</a>
+          </div>
+        </nav>
 
-      <section className="auth-form-section">
-        <div className="auth-card">
-          
-          {/* STEP 1: ENTER EMAIL */}
-          {step === 1 && (
-            <form onSubmit={handleRequestOTP}>
-              <div className="form-group">
-                <label>Registered Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  placeholder="you@example.com"
-                />
-              </div>
+        <motion.section className="auth-hero" style={{ minHeight: 'auto', padding: '48px 60px' }}
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="auth-hero-text" style={{ textAlign: 'center', margin: '0 auto' }}>
+            <div className="auth-tech-label" style={{ marginBottom: '16px' }}>ACCOUNT_RECOVERY</div>
+            <h1 style={{ fontSize: '36px' }}>Reset Password</h1>
+            <p style={{ borderLeft: 'none', paddingLeft: 0 }}>Secure account recovery via Email OTP and Virtual Keyboard.</p>
+          </div>
+        </motion.section>
 
-              {error && <div className="error-message">{error}</div>}
-              {success && <div className="success-message">{success}</div>}
-
-              <button type="submit" disabled={loading}>
-                {loading ? 'Requesting...' : 'Send Reset Code'}
-              </button>
-            </form>
-          )}
-
-          {/* STEP 2: ENTER OTP AND NEW PASSWORD */}
-          {step === 2 && (
-            <form onSubmit={handleResetSubmit}>
-              <div className="success-message" style={{ marginBottom: '20px' }}>
-                {success}
-              </div>
-
-              <div className="form-group" style={{ textAlign: 'center' }}>
-                <label>Secure OTP Entry</label>
-                <div style={{ 
-                  fontSize: '24px', letterSpacing: '8px', fontWeight: 'bold', 
-                  color: '#1a1a2e', background: '#f3f4f6', padding: '10px', 
-                  borderRadius: '8px', border: '1px solid #d1d5db', 
-                  margin: '10px auto', width: 'fit-content', minWidth: '150px'
-                }}>
-                  {otpCode.padEnd(6, '*')}
+        <motion.section className="auth-form-section"
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+        >
+          <div className="auth-card">
+            
+            {step === 1 && (
+              <form onSubmit={handleRequestOTP}>
+                <div className="form-group">
+                  <label>Registered Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="you@example.com"
+                  />
                 </div>
-                
-                {/* VIRTUAL KEYBOARD */}
-                <VirtualKeyboard 
-                  onKeyPress={handleOTPKeyPress}
-                  onBackspace={handleOTPBackspace}
-                  onClear={handleOTPClear}
-                  disabled={loading}
-                />
-              </div>
 
-              <div className="form-group">
-                <label>New Password</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  placeholder="Minimum 12 characters"
-                />
-              </div>
+                {error && <div className="error-message">{error}</div>}
+                {success && <div className="success-message">{success}</div>}
 
-              {error && <div className="error-message">{error}</div>}
+                <button type="submit" disabled={loading}>
+                  {loading ? 'Requesting...' : 'Send Reset Code'}
+                </button>
+              </form>
+            )}
 
-              <button type="submit" disabled={loading || otpCode.length !== 6}>
-                {loading ? 'Resetting...' : 'Confirm Password Reset'}
-              </button>
-            </form>
-          )}
+            {step === 2 && (
+              <form onSubmit={handleResetSubmit}>
+                <div className="success-message" style={{ marginBottom: '20px' }}>
+                  {success}
+                </div>
 
-          <p className="auth-link">
-            Remember your password? <a href="/login">Sign in</a>
-          </p>
-        </div>
-      </section>
+                <div className="form-group" style={{ textAlign: 'center' }}>
+                  <label>Secure OTP Entry</label>
+                  <div style={{ 
+                    fontSize: '24px', letterSpacing: '8px', fontWeight: '700', 
+                    fontFamily: 'Space Grotesk, sans-serif',
+                    color: 'var(--cy-text-main)', background: 'rgba(255,255,255,0.4)', padding: '14px', 
+                    borderRadius: '8px', border: '1px dashed var(--cy-border)', 
+                    margin: '10px auto', width: 'fit-content', minWidth: '180px'
+                  }}>
+                    {otpCode.padEnd(6, '·')}
+                  </div>
+                  
+                  <VirtualKeyboard 
+                    onKeyPress={handleOTPKeyPress}
+                    onBackspace={handleOTPBackspace}
+                    onClear={handleOTPClear}
+                    disabled={loading}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    placeholder="Minimum 12 characters"
+                  />
+                </div>
+
+                {error && <div className="error-message">{error}</div>}
+
+                <button type="submit" disabled={loading || otpCode.length !== 6}>
+                  {loading ? 'Resetting...' : 'Confirm Password Reset'}
+                </button>
+              </form>
+            )}
+
+            <p className="auth-link">
+              Remember your password? <a href="/login">Sign in</a>
+            </p>
+          </div>
+        </motion.section>
+
+      </div>
     </>
   );
 }

@@ -21,15 +21,17 @@ models.Base.metadata.create_all(bind=engine)
 def create_superadmin(email: str, password: str, full_name: str):
     db = SessionLocal()
     try:
+        hashed = security.hash_password(password)
         existing = db.query(models.User).filter(models.User.email == email).first()
         if existing:
-            print(f"User {email} already exists. Updating to superadmin...")
+            print(f"User {email} already exists. Updating to superadmin and updating password...")
+            existing.hashed_password = hashed
             existing.role = "superadmin"
             existing.is_admin_approved = True
             existing.is_active = True
             existing.is_verified = True
             db.commit()
-            print(f"✅ {email} is now a superadmin.")
+            print(f"✅ {email} is now a superadmin (credentials updated).")
             return
         
         hashed = security.hash_password(password)

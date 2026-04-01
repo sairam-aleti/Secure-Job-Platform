@@ -135,6 +135,7 @@ export const groupAPI = {
   sendMessage: (groupId, data) => api.post(`/groups/${groupId}/messages`, data),
   getMessages: (groupId) => api.get(`/groups/${groupId}/messages`),
   getMembers: (groupId) => api.get(`/groups/${groupId}/members`),
+  deleteGroup: (id) => api.delete(`/groups/${id}`),
 };
 
 export default api;

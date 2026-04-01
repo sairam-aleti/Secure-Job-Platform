@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import VerifyOTP from './pages/VerifyOTP';
@@ -20,7 +21,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Navigate to="/login" />} />
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-otp" element={<VerifyOTP />} />
@@ -31,7 +32,7 @@ function App() {
         <Route path="/post-job" element={<PostJob />} />
         <Route path="/jobs" element={<JobBoard />} />
         <Route path="/apply/:jobId" element={<Apply />} />
-        <Route path="/chat/:receiverId" element={<Chat />} />
+        <Route path="/chat/:receiverId?" element={<Chat />} />
         <Route path="/network" element={<Network />} />
         <Route path="/user-profile/:userId" element={<ViewProfile />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />

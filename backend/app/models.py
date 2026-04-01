@@ -116,6 +116,7 @@ class Message(Base):
     sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     receiver_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     encrypted_content = Column(String)
+    is_read = Column(Boolean, default=False)
     
     signature = Column(String, nullable=True) 
     
@@ -203,5 +204,18 @@ class GroupMessage(Base):
     group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), index=True)
     sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     encrypted_content = Column(String)  # E2EE ciphertext
+    is_read = Column(Boolean, default=False)
     signature = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+class Block(Base):
+    """Blockchain tamper-evident logging: batches of audit logs in immutable blocks."""
+    __tablename__ = "blocks"
+    id = Column(Integer, primary_key=True, index=True)
+    block_index = Column(Integer, unique=True, index=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    log_ids = Column(String)  # Comma-separated audit log IDs in this block
+    log_count = Column(Integer, default=0)
+    data_hash = Column(String)  # SHA-256 hash of all log data in this block
+    block_hash = Column(String)  # SHA-256(block_index + timestamp + data_hash + previous_block_hash)
+    previous_block_hash = Column(String, default="0")
