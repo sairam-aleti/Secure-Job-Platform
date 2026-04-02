@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import forge from 'node-forge';
+import cryptoService from '../services/cryptoService';
 import { motion, AnimatePresence } from 'framer-motion';
 import './Auth.css';
 
@@ -12,7 +13,6 @@ function Login() {
   });
   const [otpCode, setOtpCode] = useState('');
   const [otpPending, setOtpPending] = useState(false);
-  const [devOtp, setDevOtp] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -37,16 +37,13 @@ function Login() {
     try {
       const response = await authAPI.login(formData);
       
-      if (response.data.login_pending) {
-        // Backend sent OTP, show OTP input
+      if (response.data.access_token) {
+        // Superadmin: got direct token, go straight to dashboard
+        completeLogin(response.data.access_token);
+      } else if (response.data.login_pending) {
+        // Normal user: OTP sent to email, show OTP input
         setOtpPending(true);
         setSuccess('OTP sent to your email. Check your inbox.');
-        if (response.data.dev_otp) {
-          setDevOtp(response.data.dev_otp);
-        }
-      } else if (response.data.access_token) {
-        // Fallback: direct token (shouldn't happen with new backend)
-        completeLogin(response.data.access_token);
       }
     } catch (err) {
       let errorMsg = err.response?.data?.detail || 'Login failed';
@@ -79,14 +76,37 @@ function Login() {
     }
   };
 
-  const completeLogin = (token) => {
+  const completeLogin = async (token) => {
     localStorage.setItem('access_token', token);
     localStorage.setItem('user_email', formData.email);
     
     // Derive key from password using PBKDF2 for E2EE messaging
     const salt = formData.email;
     const derivedKey = forge.pkcs5.pbkdf2(formData.password, salt, 10000, 32);
-    sessionStorage.setItem('derived_key', forge.util.encode64(derivedKey));
+    const derivedKeyB64 = forge.util.encode64(derivedKey);
+    sessionStorage.setItem('derived_key', derivedKeyB64);
+    
+    // Generate and upload E2EE keys immediately so DMs work right away
+    try {
+      const existingEncryptedKey = localStorage.getItem('encrypted_private_key');
+      if (existingEncryptedKey) {
+        // Keys exist — decrypt and upload public key
+        const privKey = cryptoService.decryptPrivateKey(existingEncryptedKey, derivedKeyB64);
+        if (privKey) {
+          const pubKey = cryptoService.getPublicKeyFromPrivate(privKey);
+          if (pubKey) await authAPI.updatePublicKey({ public_key: pubKey });
+        }
+      } else {
+        // No keys — generate fresh keypair
+        const { publicKey, privateKey } = cryptoService.generateKeyPair();
+        const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, derivedKeyB64);
+        localStorage.setItem('encrypted_private_key', encryptedPrivKey);
+        await authAPI.updatePublicKey({ public_key: publicKey });
+      }
+    } catch (err) {
+      console.error('Key setup during login:', err);
+      // Non-fatal — Dashboard will retry
+    }
     
     navigate('/dashboard');
   };
@@ -303,12 +323,6 @@ function Login() {
               <p className="auth-subtitle">
                 A 6-digit code was sent to <strong>{formData.email}</strong>
               </p>
-              
-              {devOtp && (
-                <div style={{ background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#b45309' }}>
-                  <strong>Dev Mode OTP:</strong> {devOtp}
-                </div>
-              )}
               
               <form onSubmit={handleOTPVerify}>
                 <div className="form-group">

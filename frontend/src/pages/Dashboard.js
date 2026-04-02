@@ -145,11 +145,10 @@ function Dashboard() {
       const promises = [];
 
       // ── KEY SYNC ──────────────────────────────────────────────────────────
-      // Primary key setup runs in Login.js. Here we only run setupEncryption
-      // as a fallback for accounts that have no public_key in the backend yet,
-      // AND the derived_key is still alive in sessionStorage.
+      // ALWAYS sync encryption keys on dashboard load so the public key is
+      // always available in the backend for other users to encrypt DMs.
       const derivedKeyB64 = sessionStorage.getItem('derived_key');
-      if (!userData.public_key && derivedKeyB64) {
+      if (derivedKeyB64) {
         promises.push(setupEncryption());
       }
       // ─────────────────────────────────────────────────────────────────────
@@ -178,10 +177,13 @@ function Dashboard() {
       await Promise.all([...promises, minDisplayTime]);
 
     } catch (err) {
-      setError('Failed to load profile');
-      if (err.response?.status === 401) {
+      if (err.response?.status === 403 && err.response?.data?.detail === 'Account suspended') {
+        setError('Your account has been suspended by an administrator. Please contact support.');
+      } else if (err.response?.status === 401) {
         localStorage.clear();
         navigate('/login');
+      } else {
+        setError('Failed to load profile');
       }
     } finally {
       setLoading(false);
@@ -229,7 +231,18 @@ function Dashboard() {
       fetchResumes();
       fetchRecommendations();
     } catch (err) {
-      setUploadStatus(err.response?.data?.detail || 'Upload failed');
+      let errorMsg = 'Upload failed';
+      const detail = err.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === 'string') {
+          errorMsg = detail;
+        } else if (Array.isArray(detail)) {
+          errorMsg = detail.map(d => typeof d === 'object' ? (d.msg || JSON.stringify(d)) : d).join(', ');
+        } else if (typeof detail === 'object') {
+          errorMsg = detail.msg || JSON.stringify(detail);
+        }
+      }
+      setUploadStatus(errorMsg);
     }
   };
 
@@ -288,7 +301,7 @@ function Dashboard() {
           <a href="/dashboard">Dashboard</a>
           {profile?.role !== 'admin' && profile?.role !== 'superadmin' && <a href="/network">Network</a>}
           {profile?.role !== 'admin' && profile?.role !== 'superadmin' && <a href="/jobs">Job Board</a>}
-          {profile?.role === 'job_seeker' && <a href="/profile">Profile</a>}
+          {(profile?.role === 'job_seeker' || profile?.role === 'recruiter') && <a href="/profile">Profile</a>}
           {(profile?.role === 'admin' || profile?.role === 'superadmin') && <a href="/admin">Admin Panel</a>}
         </div>
         <div className="nav-actions">
@@ -410,6 +423,31 @@ function Dashboard() {
                           <span className="resume-name">{job.title}</span>
                           <span className="resume-meta">{job.employment_type} • {job.location}</span>
                         </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          className="download-btn"
+                          style={{ padding: '4px 12px', fontSize: '11px' }}
+                          onClick={() => navigate(`/post-job?edit=${job.id}`)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="btn-logout"
+                          style={{ padding: '4px 12px', fontSize: '11px', background: '#dc2626', color: 'white', border: 'none' }}
+                          onClick={async () => {
+                            if (window.confirm(`Delete "${job.title}"? This cannot be undone.`)) {
+                              try {
+                                await jobAPI.delete(job.id);
+                                setMyJobs(prev => prev.filter(j => j.id !== job.id));
+                              } catch (err) {
+                                alert(err.response?.data?.detail || 'Failed to delete job');
+                              }
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </li>
                   ))}

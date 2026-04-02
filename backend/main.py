@@ -228,7 +228,7 @@ def register_user(request: Request, user: schemas.UserCreate, db: Session = Depe
     db.refresh(new_user)
     return new_user
 
-# ==================== LOGIN (2-Step OTP) ====================
+# ==================== LOGIN (2-Step OTP for users, direct for superadmin) ====================
 
 @app.post("/login")
 @limiter.limit("10/minute")
@@ -239,8 +239,9 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """
-    STEP 1: Validate credentials and send OTP.
-    Does NOT return a token — user must verify OTP first.
+    Login flow:
+    - SUPERADMIN: Direct token (no OTP needed — created via backend script)
+    - ALL OTHERS: Credentials validated → OTP sent to email → must verify to get token
     """
     user = db.query(models.User).filter(models.User.email == user_credentials.email).first()
     if not user:
@@ -261,13 +262,28 @@ async def login(
     if user.locked_until and otp.is_account_locked(user.locked_until):
         raise HTTPException(status_code=403, detail="Account locked. Try again later.")
     
+    # SUPERADMIN: Skip OTP — issue token immediately
+    if user.role == "superadmin":
+        session_jti = auth.generate_session_id()
+        fingerprint = auth.compute_fingerprint(request)
+        if user.session_id:
+            create_audit_log(db, "SESSION_REPLACED", user.email, f"Old session invalidated")
+        user.session_id = session_jti
+        user.session_fingerprint = fingerprint
+        access_token, _ = auth.create_access_token(
+            data={"sub": user.email, "role": user.role, "jti": session_jti}
+        )
+        create_audit_log(db, "LOGIN_SUCCESS", user.email, f"Superadmin direct login, IP: {request.client.host}")
+        db.commit()
+        return {"access_token": access_token, "token_type": "bearer"}
+    
+    # ALL OTHER USERS: Send OTP to their registered email
     # Invalidate old OTPs
     db.query(models.OTP).filter(
         models.OTP.user_id == user.id,
         models.OTP.is_used == False
     ).update({"is_used": True})
     
-    # Generate and send OTP
     otp_code = otp.generate_otp()
     new_otp = models.OTP(
         user_id=user.id,
@@ -279,18 +295,19 @@ async def login(
     create_audit_log(db, "LOGIN_OTP_SENT", user.email, f"IP: {request.client.host}")
     db.commit()
     
-    # Send OTP via email in background
-    try:
-        from app.email_service import send_otp_email
-        background_tasks.add_task(send_otp_email, user.email, otp_code)
-    except Exception:
-        pass  # Email sending is best-effort
+    # Send OTP via email using the same fastmail as registration
+    message = MessageSchema(
+        subject="FortKnox Security - Login Verification Code",
+        recipients=[user.email],
+        body=f"Hello {user.full_name},\n\nYour login verification code is: {otp_code}\n\nThis code will expire in 2 minutes.\n\nIf you did not attempt to log in, please ignore this email.\n\nStay Secure,\nFortKnox Team",
+        subtype=MessageType.plain
+    )
+    background_tasks.add_task(fastmail.send_message, message)
     
     return {
         "login_pending": True,
         "email": user.email,
-        "message": "OTP sent to your email. Please verify to complete login.",
-        "dev_otp": otp_code if os.environ.get("ENVIRONMENT") == "development" else None
+        "message": "OTP sent to your email. Please verify to complete login."
     }
 
 
@@ -645,6 +662,31 @@ def list_my_resumes(
     resumes = db.query(models.Resume).filter(models.Resume.user_id == user.id).all()
     return resumes
 
+@app.delete("/resumes/{resume_id}")
+def delete_resume(
+    resume_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Delete a user's own resume."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    resume = db.query(models.Resume).filter(
+        models.Resume.id == resume_id,
+        models.Resume.user_id == user.id
+    ).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    
+    # Delete encrypted file from disk
+    file_path = os.path.join("uploads", resume.encrypted_filename)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    
+    create_audit_log(db, "RESUME_DELETED", user.email, f"Resume: {resume.original_filename}")
+    db.delete(resume)
+    db.commit()
+    return {"message": "Resume deleted"}
+
 # ==================== PROFILE ====================
 
 @app.get("/profile", response_model=schemas.ProfileResponse)
@@ -655,6 +697,8 @@ def get_profile(
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account suspended")
     return user
 
 @app.put("/profile", response_model=schemas.ProfileResponse)
@@ -694,8 +738,27 @@ def list_all_users(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
+    admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
     users = db.query(models.User).all()
-    return users
+    
+    # Mask superadmin identity for non-superadmin admins
+    result = []
+    for u in users:
+        if u.role == "superadmin" and admin_user.role != "superadmin":
+            # Create a masked copy — admin only sees "Superadmin"
+            result.append({
+                "id": u.id,
+                "email": "superadmin@system",
+                "full_name": "Superadmin",
+                "role": "superadmin",
+                "is_active": u.is_active,
+                "is_verified": u.is_verified,
+                "is_admin_approved": True,
+                "created_at": u.created_at
+            })
+        else:
+            result.append(u)
+    return result
 
 @app.post("/admin/request-action", response_model=schemas.AdminActionResponse)
 def request_admin_action(
@@ -712,8 +775,11 @@ def request_admin_action(
     target = db.query(models.User).filter(models.User.id == action.target_user_id).first()
     if not target:
         raise HTTPException(status_code=404, detail="Target user not found")
-    if target.role in ("admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Cannot perform actions on other admins")
+    # Superadmin CAN manage admins; admins CANNOT touch other admins or superadmin
+    if admin_user.role != "superadmin" and target.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only superadmin can perform actions on admins")
+    if target.role == "superadmin":
+        raise HTTPException(status_code=403, detail="Cannot perform actions on superadmin")
     
     # SUPERADMIN: Execute immediately without queue
     if admin_user.role == "superadmin":
@@ -1348,7 +1414,7 @@ def get_user_directory(
     
     query = db.query(models.User).filter(
         models.User.id != current_user.id,
-        models.User.role != "admin"
+        models.User.role.notin_(["admin", "superadmin"])  # Hide admin and superadmin from directory
     )
     
     if q:
@@ -1498,6 +1564,10 @@ def send_connection_request(
     receiver = db.query(models.User).filter(models.User.id == data.receiver_id).first()
     if not receiver:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Block connection requests to admin/superadmin
+    if receiver.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Cannot send connection requests to administrators")
 
     exists = db.query(models.Connection).filter(
         ((models.Connection.user_id == user.id) & (models.Connection.connection_id == data.receiver_id)) |
@@ -1975,3 +2045,169 @@ def get_group_members(
                 "public_key": u.public_key
             })
     return result
+
+# ==================== DELETE PROFILE PICTURE ====================
+
+@app.delete("/profile/picture")
+def delete_profile_picture(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Remove the user's profile picture."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    if not user.profile_picture:
+        raise HTTPException(status_code=400, detail="No profile picture to remove")
+    
+    # Delete the file
+    filepath = os.path.join("uploads", user.profile_picture)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+    
+    user.profile_picture = None
+    create_audit_log(db, "PROFILE_PICTURE_REMOVED", user.email)
+    db.commit()
+    
+    return {"message": "Profile picture removed"}
+
+# ==================== JOB EDIT / DELETE (Recruiter) ====================
+
+@app.put("/jobs/{job_id}", response_model=schemas.JobResponse)
+def update_job(
+    job_id: int,
+    job_data: schemas.JobCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Recruiter updates their own job posting."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can edit jobs")
+    
+    job = db.query(models.Job).filter(models.Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own jobs")
+    
+    job.title = job_data.title
+    job.description = job_data.description
+    job.location = job_data.location
+    job.salary_range = job_data.salary_range
+    job.employment_type = job_data.employment_type
+    job.skills_required = job_data.skills_required
+    if hasattr(job_data, 'deadline') and job_data.deadline:
+        job.deadline = job_data.deadline
+    
+    create_audit_log(db, "JOB_UPDATED", user.email, f"Job #{job_id}")
+    db.commit()
+    db.refresh(job)
+    return job
+
+@app.delete("/jobs/{job_id}")
+def delete_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Recruiter deletes their own job posting."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if user.role != "recruiter":
+        raise HTTPException(status_code=403, detail="Only recruiters can delete jobs")
+    
+    job = db.query(models.Job).filter(models.Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own jobs")
+    
+    create_audit_log(db, "JOB_DELETED", user.email, f"Job: {job.title}")
+    db.delete(job)
+    db.commit()
+    return {"message": "Job posting deleted"}
+
+# ==================== BLOCKCHAIN AUDIT SYSTEM ====================
+
+@app.get("/admin/blockchain")
+def get_blockchain(
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """Get all mined blocks."""
+    return db.query(models.Block).order_by(models.Block.block_index.asc()).all()
+
+@app.post("/admin/blockchain/mine")
+def mine_block(
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """Mine a new block from unprocessed audit logs."""
+    # Get the last block
+    last_block = db.query(models.Block).order_by(models.Block.block_index.desc()).first()
+    last_index = last_block.block_index if last_block else -1
+    previous_hash = last_block.block_hash if last_block else "0"
+    
+    # Get all log IDs already in blocks
+    existing_log_ids = set()
+    if last_block:
+        all_blocks = db.query(models.Block).all()
+        for b in all_blocks:
+            if b.log_ids:
+                for lid in b.log_ids.split(","):
+                    existing_log_ids.add(int(lid.strip()))
+    
+    # Get unprocessed logs
+    all_logs = db.query(models.AuditLog).order_by(models.AuditLog.id.asc()).all()
+    unprocessed = [log for log in all_logs if log.id not in existing_log_ids]
+    
+    if not unprocessed:
+        raise HTTPException(status_code=400, detail="No new audit logs to mine into a block")
+    
+    # Build block data
+    log_ids_str = ",".join(str(log.id) for log in unprocessed)
+    log_data = "|".join(f"{log.id}:{log.action}:{log.performed_by}:{log.timestamp}" for log in unprocessed)
+    
+    now = datetime.now(timezone.utc)
+    new_index = last_index + 1
+    
+    data_hash = hashlib.sha256(log_data.encode()).hexdigest()
+    block_content = f"{new_index}:{now}:{data_hash}:{previous_hash}"
+    block_hash = hashlib.sha256(block_content.encode()).hexdigest()
+    
+    new_block = models.Block(
+        block_index=new_index,
+        timestamp=now,
+        log_ids=log_ids_str,
+        log_count=len(unprocessed),
+        data_hash=data_hash,
+        block_hash=block_hash,
+        previous_block_hash=previous_hash
+    )
+    db.add(new_block)
+    create_audit_log(db, "BLOCK_MINED", admin_email, f"Block #{new_index} with {len(unprocessed)} logs")
+    db.commit()
+    db.refresh(new_block)
+    
+    return new_block
+
+@app.get("/admin/blockchain/verify")
+def verify_blockchain(
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """Verify the entire blockchain integrity."""
+    blocks = db.query(models.Block).order_by(models.Block.block_index.asc()).all()
+    
+    if not blocks:
+        return {"valid": True, "total_blocks": 0, "message": "No blocks in chain"}
+    
+    for i, block in enumerate(blocks):
+        # Verify chain linkage
+        if i == 0:
+            if block.previous_block_hash != "0":
+                return {"valid": False, "total_blocks": len(blocks), "message": f"Genesis block has invalid previous hash"}
+        else:
+            if block.previous_block_hash != blocks[i - 1].block_hash:
+                return {"valid": False, "total_blocks": len(blocks), "message": f"Chain broken at block #{block.block_index}"}
+    
+    return {"valid": True, "total_blocks": len(blocks), "message": "Blockchain integrity verified"}

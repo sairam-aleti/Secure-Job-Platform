@@ -54,9 +54,8 @@ export const authAPI = {
 export const profileAPI = {
   getProfile: () => api.get('/profile'),
   updateProfile: (data) => api.put('/profile', data),
-  uploadPicture: (formData) => api.put('/profile/picture', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
+  uploadPicture: (formData) => api.put('/profile/picture', formData),
+  deletePicture: () => api.delete('/profile/picture'),
 };
 
 export const userAPI = {
@@ -83,14 +82,15 @@ export const jobAPI = {
   list: () => api.get('/jobs'),
   myJobs: () => api.get('/my-jobs'),
   getRecommendations: () => api.get('/jobs/recommendations'),
+  update: (id, data) => api.put(`/jobs/${id}`, data),
+  delete: (id) => api.delete(`/jobs/${id}`),
 };
 
 export const resumeAPI = {
-  upload: (formData) => api.post('/upload-resume', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
+  upload: (formData) => api.post('/upload-resume', formData),
   download: (id) => api.get(`/download-resume/${id}`, { responseType: 'blob' }),
   list: () => api.get('/my-resumes'),
+  delete: (id) => api.delete(`/resumes/${id}`),
 };
 
 export const applicationAPI = {
@@ -123,6 +123,11 @@ export const adminAPI = {
   // Reports / Content Moderation
   getReports: () => api.get('/admin/reports'),
   reviewReport: (id, status) => api.put(`/admin/reports/${id}`, { status }),
+  
+  // Blockchain
+  getBlockchain: () => api.get('/admin/blockchain'),
+  mineBlock: () => api.post('/admin/blockchain/mine'),
+  verifyChain: () => api.get('/admin/blockchain/verify'),
 };
 
 export const reportAPI = {

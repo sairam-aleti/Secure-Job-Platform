@@ -64,7 +64,8 @@ function JobBoard() {
 
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          job.description.toLowerCase().includes(searchTerm.toLowerCase());
+                          job.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (job.skills_required && job.skills_required.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesType = filterType === 'All' || job.employment_type === filterType;
     let matchesLocation = true;
     if (filterLocation === 'Remote') {
@@ -96,7 +97,7 @@ function JobBoard() {
         <div className="nav-center">
           <a href="/dashboard">Dashboard</a>
           <a href="/jobs">Job Board</a>
-          {profile?.role !== 'recruiter' && <a href="/profile">Profile</a>}
+          <a href="/profile">Profile</a>
           {profile?.role === 'admin' && <a href="/admin">Admin Panel</a>}
         </div>
         <div className="nav-actions">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jobAPI, companyAPI } from '../services/api';
 import { motion } from 'framer-motion';
 import './Dashboard.css';
@@ -21,20 +21,70 @@ function PostJob() {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editJobId = searchParams.get('edit');
+  const [isEditMode, setIsEditMode] = useState(false);
 
   useEffect(() => {
     fetchCompanies();
-  }, []);
+    if (editJobId) {
+      loadJobForEdit(editJobId);
+    }
+  }, [editJobId]);
 
   const fetchCompanies = async () => {
     try {
       const response = await companyAPI.list();
       setCompanies(response.data);
-      if (response.data.length > 0) {
+      if (response.data.length > 0 && !editJobId) {
         setFormData(prev => ({ ...prev, company_id: response.data[0].id }));
       }
     } catch (err) {
       console.error('Failed to load companies');
+    }
+  };
+
+  const loadJobForEdit = async (jobId) => {
+    try {
+      const jobsRes = await jobAPI.myJobs();
+      const job = jobsRes.data.find(j => j.id === parseInt(jobId));
+      if (job) {
+        setIsEditMode(true);
+        // Parse salary_range back to currency + amount
+        let currency = 'USD';
+        let amount = '';
+        if (job.salary_range) {
+          const parts = job.salary_range.split(' ');
+          if (parts.length >= 2) {
+            currency = parts[0];
+            amount = parts.slice(1).join(' ');
+          } else {
+            amount = job.salary_range;
+          }
+        }
+        // Parse skills_required (could be JSON array string)
+        let skills = job.skills_required || '';
+        try {
+          const parsed = JSON.parse(skills);
+          if (Array.isArray(parsed)) skills = parsed.join(', ');
+        } catch { /* keep as-is */ }
+
+        setFormData({
+          company_id: job.company_id || '',
+          title: job.title || '',
+          description: job.description || '',
+          location: job.location || '',
+          employment_type: job.employment_type || 'Full-time',
+          skills_required: skills,
+          salary_amount: amount,
+          currency: currency,
+          deadline: job.deadline ? new Date(job.deadline).toISOString().slice(0, 16) : '',
+        });
+      } else {
+        setError('Job not found. You can only edit your own jobs.');
+      }
+    } catch (err) {
+      setError('Failed to load job for editing.');
     }
   };
 
@@ -47,6 +97,16 @@ function PostJob() {
     setLoading(true);
     setError('');
     setSuccessMessage('');
+
+    // Validate deadline is not in the past
+    if (formData.deadline) {
+      const deadlineDate = new Date(formData.deadline);
+      if (deadlineDate < new Date()) {
+        setError('Deadline must be a future date.');
+        setLoading(false);
+        return;
+      }
+    }
 
     try {
       const skillsArray = formData.skills_required.split(',').map(s => s.trim());
@@ -65,11 +125,29 @@ function PostJob() {
       } else {
         payload.deadline = null;
       }
-      await jobAPI.create(payload);
-      setSuccessMessage('Job posted successfully! Redirecting...');
+
+      if (isEditMode && editJobId) {
+        await jobAPI.update(parseInt(editJobId), payload);
+        setSuccessMessage('Job updated successfully! Redirecting...');
+      } else {
+        await jobAPI.create(payload);
+        setSuccessMessage('Job posted successfully! Redirecting...');
+      }
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to post job');
+      // Extract error message safely — handle both string and array/object detail
+      let errorMsg = 'Failed to post job';
+      const detail = err.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === 'string') {
+          errorMsg = detail;
+        } else if (Array.isArray(detail)) {
+          errorMsg = detail.map(d => typeof d === 'object' ? (d.msg || JSON.stringify(d)) : d).join(', ');
+        } else if (typeof detail === 'object') {
+          errorMsg = detail.msg || JSON.stringify(detail);
+        }
+      }
+      setError(errorMsg);
       setLoading(false);
     }
   };
@@ -90,9 +168,11 @@ function PostJob() {
 
       <div className="page-hero">
         <div className="page-hero-inner">
-          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>JOB_POSTING</div>
-          <h2>Post a New Job</h2>
-          <p>Find the best talent for your company</p>
+          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>
+            {isEditMode ? 'JOB_EDIT' : 'JOB_POSTING'}
+          </div>
+          <h2>{isEditMode ? 'Edit Job Posting' : 'Post a New Job'}</h2>
+          <p>{isEditMode ? 'Update the details of your job listing' : 'Find the best talent for your company'}</p>
         </div>
       </div>
 
@@ -153,7 +233,13 @@ function PostJob() {
               </div>
               <div className="form-group">
                 <label>Application Deadline (Optional)</label>
-                <input type="datetime-local" name="deadline" value={formData.deadline} onChange={handleChange} />
+                <input 
+                  type="datetime-local" 
+                  name="deadline" 
+                  value={formData.deadline} 
+                  onChange={handleChange}
+                  min={new Date().toISOString().slice(0, 16)} 
+                />
               </div>
             </div>
 
@@ -171,7 +257,7 @@ function PostJob() {
             {error && <div className="error-message">{error}</div>}
 
             <button type="submit" disabled={loading}>
-              {loading ? 'Posting...' : 'Post Job'}
+              {loading ? (isEditMode ? 'Updating...' : 'Posting...') : (isEditMode ? 'Update Job' : 'Post Job')}
             </button>
           </form>
         </motion.div>

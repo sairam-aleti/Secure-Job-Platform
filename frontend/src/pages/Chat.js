@@ -63,8 +63,8 @@ function Chat() {
         await fetchMessages();
       }
 
-      // KEY SYNC: Ensure current user's public key is in the backend if we have it locally
-      if (profRes.data && !profRes.data.public_key && derivedKeyB64 && encryptedKeyJson) {
+      // KEY SYNC: Always ensure current user's public key is in the backend
+      if (derivedKeyB64 && encryptedKeyJson) {
         const decryptedKey = cryptoService.decryptPrivateKey(encryptedKeyJson, derivedKeyB64);
         if (decryptedKey) {
           const pubKey = cryptoService.getPublicKeyFromPrivate(decryptedKey);
@@ -122,11 +122,11 @@ function Chat() {
           setReceiverKey(keyRes.data.public_key);
           // Continue with sending below if key is found
         } else {
-          alert("Encryption blocked: The recipient has not yet initialized their secure identity (PGP keys). They must log in to generate their keys."); 
+          alert("Cannot send message: The recipient hasn't set up their encryption keys yet. They need to log in and visit their dashboard first."); 
           return;
         }
       } catch {
-        alert("Encryption blocked: Recipient's secure identity could not be retrieved.");
+        alert("Cannot send message: The recipient hasn't logged in yet to generate their encryption keys. Ask them to log in first.");
         return;
       }
     }
@@ -393,7 +393,7 @@ function Chat() {
                 <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '6px' }}>GROUP_CHANNELS</div>
                 <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: '700', fontSize: '20px', margin: 0 }}>Your Groups</h3>
               </div>
-              {profile?.role === 'recruiter' && (
+              {(profile?.role === 'recruiter' || profile?.role === 'job_seeker') && (
                 <button className="btn-upload" style={{ padding: '8px 20px', fontSize: '11px' }} onClick={openGroupCreation}>
                   + New Group
                 </button>
