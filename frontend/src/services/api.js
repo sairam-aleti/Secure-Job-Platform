@@ -87,7 +87,7 @@ export const jobAPI = {
 };
 
 export const resumeAPI = {
-  upload: (formData) => api.post('/upload-resume', formData),
+  upload: (formData) => api.post('/upload-resume', formData, { headers: { 'Content-Type': undefined } }),
   download: (id) => api.get(`/download-resume/${id}`, { responseType: 'blob' }),
   list: () => api.get('/my-resumes'),
   delete: (id) => api.delete(`/resumes/${id}`),
@@ -140,6 +140,7 @@ export const groupAPI = {
   sendMessage: (groupId, data) => api.post(`/groups/${groupId}/messages`, data),
   getMessages: (groupId) => api.get(`/groups/${groupId}/messages`),
   getMembers: (groupId) => api.get(`/groups/${groupId}/members`),
+  addMembers: (groupId, data) => api.post(`/groups/${groupId}/members`, data),
   deleteGroup: (id) => api.delete(`/groups/${id}`),
 };
 

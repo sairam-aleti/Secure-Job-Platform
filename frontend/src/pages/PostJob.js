@@ -78,7 +78,7 @@ function PostJob() {
           skills_required: skills,
           salary_amount: amount,
           currency: currency,
-          deadline: job.deadline ? new Date(job.deadline).toISOString().slice(0, 16) : '',
+          deadline: job.deadline ? new Date(job.deadline).toISOString().split('T')[0] : '',
         });
       } else {
         setError('Job not found. You can only edit your own jobs.');
@@ -105,6 +105,19 @@ function PostJob() {
         setError('Deadline must be a future date.');
         setLoading(false);
         return;
+      }
+    }
+
+    // Validate salary amount is not unrealistically high
+    if (formData.salary_amount.trim()) {
+      const salaryNumbers = formData.salary_amount.match(/\d+\.?\d*/g);
+      if (salaryNumbers) {
+        const maxVal = Math.max(...salaryNumbers.map(Number));
+        if (maxVal > 10000000) {
+          setError('Salary value is unrealistic. Please enter a valid range (max 10,000,000).');
+          setLoading(false);
+          return;
+        }
       }
     }
 
@@ -234,11 +247,15 @@ function PostJob() {
               <div className="form-group">
                 <label>Application Deadline (Optional)</label>
                 <input 
-                  type="datetime-local" 
+                  type={formData.deadline ? "date" : "text"}
+                  onFocus={(e) => e.target.type = 'date'}
+                  onBlur={(e) => { if (!e.target.value) e.target.type = 'text'; }}
+                  placeholder="dd/mm/yyyy"
                   name="deadline" 
                   value={formData.deadline} 
                   onChange={handleChange}
-                  min={new Date().toISOString().slice(0, 16)} 
+                  min={new Date().toISOString().split('T')[0]} 
+                  style={{ color: formData.deadline ? 'inherit' : 'var(--cy-text-mute)' }}
                 />
               </div>
             </div>

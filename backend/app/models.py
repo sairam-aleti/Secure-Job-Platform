@@ -44,6 +44,7 @@ class User(Base):
 
     # SECURITY MANDATE: RSA Public Key for E2EE Messaging
     public_key = Column(String, nullable=True)
+    encrypted_private_key = Column(String, nullable=True)
 
     share_view_history = Column(Boolean, default=True)
 

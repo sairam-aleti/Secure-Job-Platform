@@ -7,6 +7,7 @@ import './Dashboard.css';
 
 function Profile() {
   const [profile, setProfile] = useState({
+    role: '',
     full_name: '',
     headline: '',
     location: '',
@@ -58,6 +59,7 @@ function Profile() {
       setUserEmail(data.email || '');
       setCurrentPicture(data.profile_picture || null);
       setProfile({
+        role: data.role || '',
         full_name: data.full_name || '',
         headline: data.headline || '',
         location: data.location || '',
@@ -406,20 +408,22 @@ function Profile() {
               </div>
             </div>
 
-            <div className="form-row">
-              <div className="form-group">
-                <label>Skills (comma separated)</label>
-                <input type="text" name="skills" value={profile.skills} onChange={handleChange} placeholder="e.g., Python, React, Security" />
+            {profile.role !== 'recruiter' && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Skills (comma separated)</label>
+                  <input type="text" name="skills" value={profile.skills} onChange={handleChange} placeholder="e.g., Python, React, Security" />
+                </div>
+                <div className="form-group privacy-select">
+                  <label>Privacy</label>
+                  <select name="skills_privacy" value={profile.skills_privacy} onChange={handleChange}>
+                    <option value="public">Public</option>
+                    <option value="connections">Connections Only</option>
+                    <option value="private">Private</option>
+                  </select>
+                </div>
               </div>
-              <div className="form-group privacy-select">
-                <label>Privacy</label>
-                <select name="skills_privacy" value={profile.skills_privacy} onChange={handleChange}>
-                  <option value="public">Public</option>
-                  <option value="connections">Connections Only</option>
-                  <option value="private">Private</option>
-                </select>
-              </div>
-            </div>
+            )}
 
             <div className="form-row">
               <div className="form-group">
