@@ -201,7 +201,8 @@ function PostJob() {
 
             <div className="form-group">
               <label>Job Title</label>
-              <input type="text" name="title" value={formData.title} onChange={handleChange} required placeholder="e.g. Senior Security Analyst" />
+              <input type="text" name="title" value={formData.title} onChange={handleChange} required placeholder="e.g. Senior Security Analyst" maxLength={200} />
+              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.title || '').length}/200</div>
             </div>
 
             <div className="form-row">
@@ -216,7 +217,8 @@ function PostJob() {
               </div>
               <div className="form-group">
                 <label>Location</label>
-                <input type="text" name="location" value={formData.location} onChange={handleChange} required placeholder="e.g. Remote / New York" />
+                <input type="text" name="location" value={formData.location} onChange={handleChange} required placeholder="e.g. Remote / New York" maxLength={200} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.location || '').length}/200</div>
               </div>
             </div>
 
@@ -241,8 +243,10 @@ function PostJob() {
                     onChange={handleChange} 
                     placeholder="e.g. 100k - 120k" 
                     style={{ flex: 1 }}
+                    maxLength={100}
                   />
                 </div>
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.salary_amount || '').length}/100</div>
               </div>
               <div className="form-group">
                 <label>Application Deadline (Optional)</label>
@@ -262,12 +266,14 @@ function PostJob() {
 
             <div className="form-group">
               <label>Required Skills (comma separated)</label>
-              <input type="text" name="skills_required" value={formData.skills_required} onChange={handleChange} required placeholder="e.g. Python, Linux, Burp Suite" />
+              <input type="text" name="skills_required" value={formData.skills_required} onChange={handleChange} required placeholder="e.g. Python, Linux, Burp Suite" maxLength={500} />
+              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.skills_required || '').length}/500</div>
             </div>
 
             <div className="form-group">
               <label>Job Description</label>
-              <textarea name="description" value={formData.description} onChange={handleChange} required placeholder="Describe the role responsibilities..." rows="6" />
+              <textarea name="description" value={formData.description} onChange={handleChange} required placeholder="Describe the role responsibilities..." rows="6" maxLength={3000} />
+              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.description || '').length}/3000</div>
             </div>
 
             {successMessage && <div className="success-message">{successMessage}</div>}

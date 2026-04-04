@@ -54,7 +54,7 @@ export const authAPI = {
 export const profileAPI = {
   getProfile: () => api.get('/profile'),
   updateProfile: (data) => api.put('/profile', data),
-  uploadPicture: (formData) => api.put('/profile/picture', formData),
+  uploadPicture: (formData) => api.put('/profile/picture', formData, { headers: { 'Content-Type': undefined } }),
   deletePicture: () => api.delete('/profile/picture'),
 };
 

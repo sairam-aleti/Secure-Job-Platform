@@ -63,22 +63,26 @@ function CreateCompany() {
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Company Name</label>
-              <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder="e.g. SecureTech Inc." />
+              <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder="e.g. SecureTech Inc." maxLength={200} />
+              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.name || '').length}/200</div>
             </div>
 
             <div className="form-group">
               <label>Description</label>
-              <textarea name="description" value={formData.description} onChange={handleChange} required placeholder="Tell us about your company..." rows="4" />
+              <textarea name="description" value={formData.description} onChange={handleChange} required placeholder="Tell us about your company..." rows="4" maxLength={2000} />
+              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.description || '').length}/2000</div>
             </div>
 
             <div className="form-row">
               <div className="form-group">
                 <label>Location</label>
-                <input type="text" name="location" value={formData.location} onChange={handleChange} required placeholder="e.g. San Francisco, CA" />
+                <input type="text" name="location" value={formData.location} onChange={handleChange} required placeholder="e.g. San Francisco, CA" maxLength={200} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.location || '').length}/200</div>
               </div>
               <div className="form-group">
                 <label>Website</label>
-                <input type="url" name="website" value={formData.website} onChange={handleChange} placeholder="https://example.com" />
+                <input type="url" name="website" value={formData.website} onChange={handleChange} placeholder="https://example.com" maxLength={100} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(formData.website || '').length}/100</div>
               </div>
             </div>
 

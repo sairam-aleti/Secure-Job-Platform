@@ -17,7 +17,7 @@ function Chat() {
   const messagesEndRef = useRef(null);
 
   // Group messaging state
-  const [chatMode, setChatMode] = useState('dm'); // 'dm' | 'groups'
+  const [chatMode, setChatMode] = useState(receiverId === 'groups' ? 'groups' : 'dm'); // 'dm' | 'groups'
   const [groups, setGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [groupMessages, setGroupMessages] = useState([]);
@@ -75,11 +75,16 @@ function Chat() {
         await fetchMessages();
       }
 
-      // Groups init
+      // Groups and Connections init
       try {
         const groupsRes = await groupAPI.myGroups();
         setGroups(groupsRes.data || []);
       } catch { setGroups([]); }
+      
+      try {
+        const connRes = await connectionAPI.getMyConnections();
+        setConnections(connRes.data || []);
+      } catch { setConnections([]); }
 
     } catch (err) {
       console.error("Chat initialization error:", err);
@@ -115,21 +120,50 @@ function Chat() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    const rId = parseInt(receiverId);
+    if (isNaN(rId)) {
+      alert("Please select a connection from the Network or Dashboard first.");
+      return;
+    }
     if (!newMessage.trim() || isSending) return;
     setIsSending(true);
     try {
+      // Fetch recipient's public key
+      const keyRes = await authAPI.getUserPublicKey(rId);
+      const recipientPubKey = keyRes.data.public_key;
+
+      if (!recipientPubKey) {
+        alert("The recipient hasn't generated their encryption keys yet.");
+        setIsSending(false);
+        return;
+      }
+
+      // E2EE Double Encryption
+      const encryptedPayload = cryptoService.encryptDouble(newMessage, recipientPubKey, profile.public_key);
+      if (!encryptedPayload) {
+        alert("Failed to encrypt message.");
+        setIsSending(false);
+        return;
+      }
+
       let sig = null;
       if (myPrivateKey) { sig = cryptoService.signMessage(newMessage, myPrivateKey); }
+      
       await messageAPI.sendMessage({
-        receiver_id: parseInt(receiverId),
-        encrypted_content: newMessage,
+        receiver_id: rId,
+        encrypted_content: encryptedPayload,
         signature: sig
       });
       setNewMessage('');
       fetchMessages();
     } catch (err) {
       console.error(err);
-      alert("Failed to send message.");
+      const detail = err.response?.data?.detail;
+      let errorMsg = 'Failed to send message.';
+      if (detail) {
+        errorMsg = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      }
+      alert(errorMsg);
     } finally {
       setIsSending(false);
     }
@@ -221,7 +255,19 @@ function Chat() {
 
   const renderMessage = (msg) => {
     const isMe = msg.sender_id === profile?.id;
-    const content = msg.encrypted_content;
+    let content = msg.encrypted_content;
+    
+    // Attempt Decryption if it looks like an E2EE payload
+    if (content && content.startsWith('{') && myPrivateKey) {
+      try {
+        const decrypted = cryptoService.decryptMessage(content, myPrivateKey);
+        if (decrypted && !decrypted.includes("[Unable to decrypt")) {
+          content = decrypted;
+        }
+      } catch (e) {
+        // Fallback to raw if decryption fatally fails
+      }
+    }
 
     return (
       <motion.div key={msg.id}
@@ -362,20 +408,50 @@ function Chat() {
               <h3 style={{ margin: 0 }}>Secure Chat</h3>
               <span className="card-badge" style={{ background: 'rgba(5,150,105,0.08)', color: '#065f46', border: '1px dashed rgba(5,150,105,0.3)' }}>E2EE Active</span>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '28px' }}>
-              {messages.length === 0 ? <p style={{ textAlign: 'center', color: 'var(--cy-text-mute)', marginTop: '20%', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' }}>No messages recorded.</p> : messages.map(renderMessage)}
-              <div ref={messagesEndRef} />
-            </div>
-            <form onSubmit={handleSendMessage} style={{ padding: '20px 28px', borderTop: '1px dashed var(--cy-border)', display: 'flex', gap: '12px' }}>
-              <input 
-                type="text" placeholder="Write a secure message..." value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)} disabled={isSending}
-                style={{ flex: 1, borderRadius: '8px', padding: '12px 16px', border: '1px dashed var(--cy-border)', background: 'rgba(255,255,255,0.4)', backdropFilter: 'blur(10px)', fontFamily: 'Inter, sans-serif', fontSize: '14px', color: 'var(--cy-text-main)', outline: 'none' }}
-              />
-              <button className="btn-upload" type="submit" disabled={isSending} style={{ width: 'auto' }}>
-                {isSending ? "..." : "Send"}
-              </button>
-            </form>
+            
+            {isNaN(parseInt(receiverId)) ? (
+              <div style={{ padding: '28px', flex: 1, overflowY: 'auto' }}>
+                <h4 style={{fontFamily:'JetBrains Mono, monospace', color:'var(--cy-text-mute)', textTransform:'uppercase'}}>Select a Connection</h4>
+                <div style={{ marginTop: '16px' }}>
+                  {connections.length === 0 ? (
+                    <p style={{fontSize:'14px', color:'var(--cy-text-mute)'}}>No connections found. Build your network first.</p>
+                  ) : (
+                    connections.map(c => (
+                      <div 
+                        key={c.user_id} 
+                        onClick={() => navigate('/chat/' + c.user_id)}
+                        style={{
+                          padding: '16px', background: 'var(--cy-glass-bg)', border: '1px dashed var(--cy-border)',
+                          borderRadius: '8px', marginBottom: '8px', cursor: 'pointer', display: 'flex',
+                          alignItems: 'center', transition: 'all 0.2s', color: 'var(--cy-brand)', fontWeight: '600'
+                        }}
+                        onMouseOver={(e) => Object.assign(e.currentTarget.style, { background: 'rgba(10,102,194,0.1)', border: '1px solid rgba(10,102,194,0.3)' })}
+                        onMouseOut={(e) => Object.assign(e.currentTarget.style, { background: 'var(--cy-glass-bg)', border: '1px dashed var(--cy-border)' })}
+                      >
+                        {c.full_name}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '28px' }}>
+                  {messages.length === 0 ? <p style={{ textAlign: 'center', color: 'var(--cy-text-mute)', marginTop: '20%', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' }}>No messages recorded.</p> : messages.map(renderMessage)}
+                  <div ref={messagesEndRef} />
+                </div>
+                <form onSubmit={handleSendMessage} style={{ padding: '20px 28px', borderTop: '1px dashed var(--cy-border)', display: 'flex', gap: '12px' }}>
+                  <input 
+                    type="text" placeholder="Write a secure message..." value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)} disabled={isSending}
+                    style={{ flex: 1, borderRadius: '8px', padding: '12px 16px', border: '1px dashed var(--cy-border)', background: 'rgba(255,255,255,0.4)', backdropFilter: 'blur(10px)', fontFamily: 'Inter, sans-serif', fontSize: '14px', color: 'var(--cy-text-main)', outline: 'none' }}
+                  />
+                  <button className="btn-upload" type="submit" disabled={isSending} style={{ width: 'auto' }}>
+                    {isSending ? "..." : "Send"}
+                  </button>
+                </form>
+              </>
+            )}
           </motion.div>
         )}
 

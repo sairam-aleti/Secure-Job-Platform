@@ -146,7 +146,18 @@ function Profile() {
       setPicturePreview(null);
       setPictureMessage('Profile picture updated!');
     } catch (err) {
-      setPictureMessage(err.response?.data?.detail || 'Upload failed');
+      let errorMsg = 'Upload failed';
+      const detail = err.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === 'string') {
+          errorMsg = detail;
+        } else if (Array.isArray(detail)) {
+          errorMsg = detail.map(d => typeof d === 'object' ? (d.msg || JSON.stringify(d)) : d).join(', ');
+        } else if (typeof detail === 'object') {
+          errorMsg = detail.msg || JSON.stringify(detail);
+        }
+      }
+      setPictureMessage(errorMsg);
     } finally {
       setPictureUploading(false);
     }
@@ -360,13 +371,15 @@ function Profile() {
             {/* FULL NAME FIELD */}
             <div className="form-group">
               <label>Full Name</label>
-              <input type="text" name="full_name" value={profile.full_name} onChange={handleChange} placeholder="Your full name" />
+              <input type="text" name="full_name" value={profile.full_name} onChange={handleChange} placeholder="Your full name" maxLength={50} />
+              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.full_name || '').length}/50</div>
             </div>
 
             <div className="form-row">
               <div className="form-group">
                 <label>Headline</label>
-                <input type="text" name="headline" value={profile.headline} onChange={handleChange} placeholder="e.g., Software Engineer at Google" />
+                <input type="text" name="headline" value={profile.headline} onChange={handleChange} placeholder="e.g., Software Engineer at Google" maxLength={220} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.headline || '').length}/220</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -381,7 +394,8 @@ function Profile() {
             <div className="form-row">
               <div className="form-group">
                 <label>Location</label>
-                <input type="text" name="location" value={profile.location} onChange={handleChange} placeholder="e.g., New Delhi, India" />
+                <input type="text" name="location" value={profile.location} onChange={handleChange} placeholder="e.g., New Delhi, India" maxLength={100} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.location || '').length}/100</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -396,7 +410,8 @@ function Profile() {
             <div className="form-row">
               <div className="form-group">
                 <label>Bio</label>
-                <textarea name="bio" value={profile.bio} onChange={handleChange} placeholder="Tell us about yourself..." rows="4" />
+                <textarea name="bio" value={profile.bio} onChange={handleChange} placeholder="Tell us about yourself..." rows="4" maxLength={1000} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.bio || '').length}/1000</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -412,7 +427,8 @@ function Profile() {
               <div className="form-row">
                 <div className="form-group">
                   <label>Skills (comma separated)</label>
-                  <input type="text" name="skills" value={profile.skills} onChange={handleChange} placeholder="e.g., Python, React, Security" />
+                  <input type="text" name="skills" value={profile.skills} onChange={handleChange} placeholder="e.g., Python, React, Security" maxLength={500} />
+                  <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.skills || '').length}/500</div>
                 </div>
                 <div className="form-group privacy-select">
                   <label>Privacy</label>
@@ -428,7 +444,8 @@ function Profile() {
             <div className="form-row">
               <div className="form-group">
                 <label>Experience</label>
-                <textarea name="experience" value={profile.experience} onChange={handleChange} placeholder="Describe your work experience..." rows="4" />
+                <textarea name="experience" value={profile.experience} onChange={handleChange} placeholder="Describe your work experience..." rows="4" maxLength={1000} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.experience || '').length}/1000</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -443,7 +460,8 @@ function Profile() {
             <div className="form-row">
               <div className="form-group">
                 <label>Education</label>
-                <textarea name="education" value={profile.education} onChange={handleChange} placeholder="Describe your education..." rows="4" />
+                <textarea name="education" value={profile.education} onChange={handleChange} placeholder="Describe your education..." rows="4" maxLength={1000} />
+                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.education || '').length}/1000</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
