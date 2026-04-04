@@ -753,10 +753,12 @@ def list_all_users(
                 "role": "superadmin",
                 "is_active": u.is_active,
                 "is_verified": u.is_verified,
-                "is_admin_approved": True,
-                "created_at": u.created_at
+                "is_admin_approved": True
             })
         else:
+            # Handle potential None values for full_name to satisfy Pydantic
+            if getattr(u, "full_name", None) is None:
+                u.full_name = "Unknown"
             result.append(u)
     return result
 
@@ -1248,6 +1250,8 @@ def update_public_key(
     """Save the user's generated public key to the database."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     user.public_key = data.public_key
+    if data.encrypted_private_key:
+        user.encrypted_private_key = data.encrypted_private_key
     db.commit()
     return {"message": "Public key updated"}
 
@@ -2045,6 +2049,40 @@ def get_group_members(
                 "public_key": u.public_key
             })
     return result
+
+@app.post("/groups/{group_id}/members")
+def add_group_members(
+    group_id: int,
+    data: schemas.GroupAddMembers,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Add new members to an existing group. Only the group creator (recruiter) can add members."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    group = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group.created_by != user.id:
+        raise HTTPException(status_code=403, detail="Only the group creator can add members")
+    
+    # Get existing member IDs
+    existing = db.query(models.GroupMember.user_id).filter(
+        models.GroupMember.group_id == group_id
+    ).all()
+    existing_ids = {m[0] for m in existing}
+    
+    added = 0
+    for member_id in data.member_ids:
+        if member_id not in existing_ids:
+            member = db.query(models.User).filter(models.User.id == member_id).first()
+            if member:
+                db.add(models.GroupMember(group_id=group_id, user_id=member_id))
+                added += 1
+    
+    create_audit_log(db, "GROUP_MEMBERS_ADDED", user.email, f"Group: {group.name}, Added: {added}")
+    db.commit()
+    return {"message": f"{added} member(s) added to group"}
 
 # ==================== DELETE PROFILE PICTURE ====================
 

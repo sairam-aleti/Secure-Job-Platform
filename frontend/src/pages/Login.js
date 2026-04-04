@@ -4,6 +4,7 @@ import { authAPI } from '../services/api';
 import forge from 'node-forge';
 import cryptoService from '../services/cryptoService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { profileAPI } from '../services/api';
 import './Auth.css';
 
 function Login() {
@@ -16,6 +17,7 @@ function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -88,20 +90,33 @@ function Login() {
     
     // Generate and upload E2EE keys immediately so DMs work right away
     try {
+      // Step 1: Check backend for existing keys instead of overriding automatically
+      const profRes = await profileAPI.getProfile();
+      
+      const serverPrivKey = profRes.data.encrypted_private_key;
       const existingEncryptedKey = localStorage.getItem('encrypted_private_key');
-      if (existingEncryptedKey) {
-        // Keys exist — decrypt and upload public key
+      
+      if (serverPrivKey) {
+        // Backend has keys, pull to device and sync
+        localStorage.setItem('encrypted_private_key', serverPrivKey);
+        const privKey = cryptoService.decryptPrivateKey(serverPrivKey, derivedKeyB64);
+        if (privKey && !profRes.data.public_key) {
+           const pubKey = cryptoService.getPublicKeyFromPrivate(privKey);
+           if (pubKey) await authAPI.updatePublicKey({ public_key: pubKey, encrypted_private_key: serverPrivKey });
+        }
+      } else if (existingEncryptedKey) {
+        // Migration/edge case: keys exist logically, upload both to server
         const privKey = cryptoService.decryptPrivateKey(existingEncryptedKey, derivedKeyB64);
         if (privKey) {
           const pubKey = cryptoService.getPublicKeyFromPrivate(privKey);
-          if (pubKey) await authAPI.updatePublicKey({ public_key: pubKey });
+          if (pubKey) await authAPI.updatePublicKey({ public_key: pubKey, encrypted_private_key: existingEncryptedKey });
         }
       } else {
-        // No keys — generate fresh keypair
+        // No keys — generate fresh keypair and store on server
         const { publicKey, privateKey } = cryptoService.generateKeyPair();
         const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, derivedKeyB64);
         localStorage.setItem('encrypted_private_key', encryptedPrivKey);
-        await authAPI.updatePublicKey({ public_key: publicKey });
+        await authAPI.updatePublicKey({ public_key: publicKey, encrypted_private_key: encryptedPrivKey });
       }
     } catch (err) {
       console.error('Key setup during login:', err);
@@ -290,14 +305,27 @@ function Login() {
 
                 <div className="form-group" style={{ marginBottom: '5px' }}>
                   <label>Password</label>
-                  <input
-                    type="password"
-                    name="password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    required
-                    placeholder="Enter your password"
-                  />
+                  <div className="password-input-wrapper">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      required
+                      placeholder="Enter your password"
+                    />
+                    <button
+                      type="button"
+                      className="eye-button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      title={showPassword ? "Hide Password" : "Show Password"}
+                    >
+                      {showPassword
+                        ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                        : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                      }
+                    </button>
+                  </div>
                 </div>
                 
                 <div style={{ textAlign: 'right', marginBottom: '20px' }}>

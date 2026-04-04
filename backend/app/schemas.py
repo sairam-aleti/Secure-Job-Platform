@@ -138,6 +138,9 @@ class ProfileResponse(BaseModel):
     experience_privacy: str
     education_privacy: str
     share_view_history: bool
+
+    public_key: Optional[str] = None
+    encrypted_private_key: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -232,6 +235,7 @@ class ApplicationDetail(ApplicationResponse):
 
 class PublicKeyUpdate(BaseModel):
     public_key: str = Field(max_length=5000)
+    encrypted_private_key: Optional[str] = Field(default=None, max_length=15000)
 
 class MessageCreate(BaseModel):
     receiver_id: int
@@ -394,6 +398,9 @@ class ReportReview(BaseModel):
 
 class GroupCreate(BaseModel):
     name: str = Field(max_length=100)
+    member_ids: list[int]
+
+class GroupAddMembers(BaseModel):
     member_ids: list[int]
 
 class GroupResponse(BaseModel):

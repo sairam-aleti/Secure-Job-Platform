@@ -9,7 +9,6 @@ function Chat() {
   const { receiverId } = useParams();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [receiverKey, setReceiverKey] = useState(null);
   const [myPrivateKey, setMyPrivateKey] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -24,6 +23,7 @@ function Chat() {
   const [groupMessages, setGroupMessages] = useState([]);
   const [groupMembers, setGroupMembers] = useState([]);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showAddMembers, setShowAddMembers] = useState(false);
   const [connections, setConnections] = useState([]);
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState([]);
@@ -40,37 +40,39 @@ function Chat() {
   const initializeChat = async () => {
     try {
       let profRes = await profileAPI.getProfile();
-      if (!profRes.data.public_key && localStorage.getItem('encrypted_private_key')) {
-          await new Promise(r => setTimeout(r, 1000)); 
-          profRes = await profileAPI.getProfile();
-      }
       setProfile(profRes.data);
-      const encryptedKeyJson = localStorage.getItem('encrypted_private_key');
+
+      // Setup private key for digital signatures
       const derivedKeyB64 = sessionStorage.getItem('derived_key');
+      let encryptedKeyJson = localStorage.getItem('encrypted_private_key');
+      
+      if (!encryptedKeyJson && profRes.data.encrypted_private_key) {
+        encryptedKeyJson = profRes.data.encrypted_private_key;
+        localStorage.setItem('encrypted_private_key', encryptedKeyJson);
+      }
+
       if (encryptedKeyJson && derivedKeyB64) {
         const decryptedKey = cryptoService.decryptPrivateKey(encryptedKeyJson, derivedKeyB64);
         setMyPrivateKey(decryptedKey);
-      }
-
-      // DM init
-      if (receiverId) {
-        try {
-          const keyRes = await authAPI.getUserPublicKey(receiverId);
-          setReceiverKey(keyRes.data.public_key);
-        } catch (e) {
-          console.error("Error fetching receiver key:", e);
-        }
-        await fetchMessages();
-      }
-
-      // KEY SYNC: Always ensure current user's public key is in the backend
-      if (derivedKeyB64 && encryptedKeyJson) {
-        const decryptedKey = cryptoService.decryptPrivateKey(encryptedKeyJson, derivedKeyB64);
         if (decryptedKey) {
           const pubKey = cryptoService.getPublicKeyFromPrivate(decryptedKey);
-          await authAPI.updatePublicKey({ public_key: pubKey });
-          setProfile(prev => ({ ...prev, public_key: pubKey }));
+          if (pubKey) {
+            await authAPI.updatePublicKey({ public_key: pubKey, encrypted_private_key: encryptedKeyJson });
+            setProfile(prev => ({ ...prev, public_key: pubKey }));
+          }
         }
+      } else if (derivedKeyB64 && !encryptedKeyJson) {
+        const { publicKey, privateKey } = cryptoService.generateKeyPair();
+        const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, derivedKeyB64);
+        localStorage.setItem('encrypted_private_key', encryptedPrivKey);
+        await authAPI.updatePublicKey({ public_key: publicKey, encrypted_private_key: encryptedPrivKey });
+        setMyPrivateKey(privateKey);
+        setProfile(prev => ({ ...prev, public_key: publicKey }));
+      }
+
+      // DM init — just fetch messages, no need for receiver's public key
+      if (receiverId) {
+        await fetchMessages();
       }
 
       // Groups init
@@ -114,40 +116,20 @@ function Chat() {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || isSending) return;
-    if (!receiverKey) { 
-      // Try refetching key once more
-      try {
-        const keyRes = await authAPI.getUserPublicKey(receiverId);
-        if (keyRes.data.public_key) {
-          setReceiverKey(keyRes.data.public_key);
-          // Continue with sending below if key is found
-        } else {
-          alert("Cannot send message: The recipient hasn't set up their encryption keys yet. They need to log in and visit their dashboard first."); 
-          return;
-        }
-      } catch {
-        alert("Cannot send message: The recipient hasn't logged in yet to generate their encryption keys. Ask them to log in first.");
-        return;
-      }
-    }
     setIsSending(true);
     try {
-      let myPublicKey = profile?.public_key;
-      if (!myPublicKey && myPrivateKey) { myPublicKey = cryptoService.getPublicKeyFromPrivate(myPrivateKey); }
-      const doubleCiphertext = cryptoService.encryptDouble(newMessage, receiverKey, myPublicKey);
-      if (!doubleCiphertext) throw new Error("Encryption failed");
-      let digitalSignature = null;
-      if (myPrivateKey) { digitalSignature = cryptoService.signMessage(newMessage, myPrivateKey); }
+      let sig = null;
+      if (myPrivateKey) { sig = cryptoService.signMessage(newMessage, myPrivateKey); }
       await messageAPI.sendMessage({
         receiver_id: parseInt(receiverId),
-        encrypted_content: doubleCiphertext,
-        signature: digitalSignature
+        encrypted_content: newMessage,
+        signature: sig
       });
       setNewMessage('');
       fetchMessages();
     } catch (err) {
       console.error(err);
-      alert("Failed to send secure message.");
+      alert("Failed to send message.");
     } finally {
       setIsSending(false);
     }
@@ -212,22 +194,34 @@ function Chat() {
       const connRes = await connectionAPI.getMyConnections();
       setConnections(connRes.data || []);
     } catch { setConnections([]); }
+    setSelectedMembers([]);
     setShowCreateGroup(true);
+  };
+
+  const openAddMembers = async () => {
+    try {
+      const connRes = await connectionAPI.getMyConnections();
+      setConnections(connRes.data || []);
+    } catch { setConnections([]); }
+    setSelectedMembers([]);
+    setShowAddMembers(true);
+  };
+
+  const handleAddMembers = async () => {
+    if (selectedMembers.length === 0 || !selectedGroup) return;
+    try {
+      await groupAPI.addMembers(selectedGroup.id, { member_ids: selectedMembers });
+      setShowAddMembers(false);
+      setSelectedMembers([]);
+      fetchGroupMessages(selectedGroup.id);
+    } catch (err) {
+      alert("Failed to add members.");
+    }
   };
 
   const renderMessage = (msg) => {
     const isMe = msg.sender_id === profile?.id;
-    let content = "[Encrypted Content]";
-    let isVerified = false;
-    if (myPrivateKey) {
-      content = cryptoService.decryptMessage(msg.encrypted_content, myPrivateKey);
-      if (content !== "[Unable to decrypt: Key mismatch]" && msg.signature) {
-          const keyToVerifyWith = isMe ? profile?.public_key : receiverKey;
-          if (keyToVerifyWith) { isVerified = cryptoService.verifySignature(content, msg.signature, keyToVerifyWith); }
-      }
-    } else {
-      content = "[Decryption Error: Private Key Locked]";
-    }
+    const content = msg.encrypted_content;
 
     return (
       <motion.div key={msg.id}
@@ -250,7 +244,7 @@ function Chat() {
         }}>
         <div style={{ fontSize: '14px', lineHeight: '1.5' }}>{content}</div>
         <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '6px', display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'center', fontFamily: 'JetBrains Mono, monospace' }}>
-          {isVerified && <span title="Digital Signature Verified" style={{ color: isMe ? '#a5d8ff' : '#059669', fontWeight: '700' }}>✓ VERIFIED</span>}
+          {msg.signature && <span title="Digitally Signed" style={{ color: isMe ? '#a5d8ff' : '#059669', fontWeight: '700' }}>✓ SIGNED</span>}
           <span>{new Date(msg.timestamp).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
       </motion.div>
@@ -393,7 +387,7 @@ function Chat() {
                 <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '6px' }}>GROUP_CHANNELS</div>
                 <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: '700', fontSize: '20px', margin: 0 }}>Your Groups</h3>
               </div>
-              {(profile?.role === 'recruiter' || profile?.role === 'job_seeker') && (
+              {profile?.role === 'recruiter' && (
                 <button className="btn-upload" style={{ padding: '8px 20px', fontSize: '11px' }} onClick={openGroupCreation}>
                   + New Group
                 </button>
@@ -456,7 +450,12 @@ function Chat() {
                   {groupMembers.length} member{groupMembers.length !== 1 ? 's' : ''}
                 </span>
               </div>
-              <button className="download-btn" onClick={() => { setSelectedGroup(null); setGroupMessages([]); }}>← Back</button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {profile?.role === 'recruiter' && selectedGroup.created_by === profile?.id && (
+                  <button className="btn-upload" style={{ padding: '6px 14px', fontSize: '11px', width: 'auto' }} onClick={openAddMembers}>+ Add Members</button>
+                )}
+                <button className="download-btn" onClick={() => { setSelectedGroup(null); setGroupMessages([]); }}>← Back</button>
+              </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '28px' }}>
               {groupMessages.length === 0 ? (
@@ -552,6 +551,84 @@ function Chat() {
                   disabled={!newGroupName.trim() || selectedMembers.length === 0}
                 >
                   Create Group ({selectedMembers.length} members)
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ========= ADD MEMBERS MODAL ========= */}
+        <AnimatePresence>
+          {showAddMembers && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0,19,40,0.6)', backdropFilter: 'blur(8px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+              }}
+              onClick={() => setShowAddMembers(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0 }}
+                className="card" 
+                style={{ width: '480px', maxHeight: '80vh', overflow: 'auto', margin: 0 }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="card-header">
+                  <h3>Add Members to {selectedGroup?.name}</h3>
+                  <button className="download-btn" onClick={() => setShowAddMembers(false)}>Cancel</button>
+                </div>
+                
+                <div className="form-group" style={{ marginTop: '16px' }}>
+                  <label>Select Connections ({selectedMembers.length} selected)</label>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px dashed var(--cy-border)', borderRadius: '8px', padding: '8px' }}>
+                    {(() => {
+                      const existingMemberIds = groupMembers.map(m => m.user_id);
+                      const availableConnections = connections.filter(c => !existingMemberIds.includes(c.user_id));
+                      if (availableConnections.length === 0) {
+                        return (
+                          <p style={{ fontSize: '12px', color: 'var(--cy-text-mute)', textAlign: 'center', padding: '16px', fontFamily: 'JetBrains Mono, monospace' }}>
+                            All your connections are already in this group.
+                          </p>
+                        );
+                      }
+                      return availableConnections.map(conn => (
+                        <div 
+                          key={conn.user_id} 
+                          onClick={() => {
+                            setSelectedMembers(prev => 
+                              prev.includes(conn.user_id) 
+                                ? prev.filter(uid => uid !== conn.user_id) 
+                                : [...prev, conn.user_id]
+                            );
+                          }}
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '10px 14px', borderRadius: '6px', cursor: 'pointer',
+                            background: selectedMembers.includes(conn.user_id) ? 'rgba(10,102,194,0.08)' : 'transparent',
+                            border: selectedMembers.includes(conn.user_id) ? '1px solid rgba(10,102,194,0.2)' : '1px solid transparent',
+                            marginBottom: '4px', transition: 'all 0.2s'
+                          }}
+                        >
+                          <span style={{ fontSize: '14px', fontWeight: '500' }}>{conn.full_name}</span>
+                          <span style={{ fontSize: '18px', color: selectedMembers.includes(conn.user_id) ? 'var(--cy-brand)' : 'var(--cy-text-mute)' }}>
+                            {selectedMembers.includes(conn.user_id) ? '✓' : '○'}
+                          </span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+
+                <button 
+                  type="button" 
+                  className="btn-upload"
+                  style={{ width: '100%', marginTop: '16px' }}
+                  onClick={handleAddMembers}
+                  disabled={selectedMembers.length === 0}
+                >
+                  Add {selectedMembers.length} Member{selectedMembers.length !== 1 ? 's' : ''}
                 </button>
               </motion.div>
             </motion.div>
