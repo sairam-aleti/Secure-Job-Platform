@@ -7,7 +7,7 @@ import re
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-    full_name: str = Field(max_length=100)
+    full_name: str = Field(max_length=50)
     # Admin can register (professor requirement) but needs superadmin approval for destructive actions
     role: Literal["job_seeker", "recruiter", "admin"]
 
@@ -88,13 +88,13 @@ class ResumeResponse(BaseModel):
         from_attributes = True
 
 class ProfileUpdate(BaseModel):
-    full_name: Optional[str] = Field(default=None, max_length=100)
-    headline: Optional[str] = Field(default=None, max_length=200)
+    full_name: Optional[str] = Field(default=None, max_length=50)
+    headline: Optional[str] = Field(default=None, max_length=220)
     location: Optional[str] = Field(default=None, max_length=100)
-    bio: Optional[str] = Field(default=None, max_length=2000)
-    skills: Optional[str] = Field(default=None, max_length=1000)
-    experience: Optional[str] = Field(default=None, max_length=5000)
-    education: Optional[str] = Field(default=None, max_length=5000)
+    bio: Optional[str] = Field(default=None, max_length=1000)
+    skills: Optional[str] = Field(default=None, max_length=500)
+    experience: Optional[str] = Field(default=None, max_length=1000)
+    education: Optional[str] = Field(default=None, max_length=1000)
     
     # Privacy settings for each field
     headline_privacy: Optional[Literal["public", "connections", "private"]] = None
@@ -164,9 +164,9 @@ class AdminAction(BaseModel):
 # --- COMPANY SCHEMAS ---
 class CompanyCreate(BaseModel):
     name: str = Field(max_length=200)
-    description: str = Field(max_length=5000)
+    description: str = Field(max_length=2000)
     location: str = Field(max_length=200)
-    website: Optional[str] = Field(default=None, max_length=500)
+    website: Optional[str] = Field(default=None, max_length=100)
 
 class CompanyResponse(BaseModel):
     id: int
@@ -183,10 +183,10 @@ class CompanyResponse(BaseModel):
 class JobCreate(BaseModel):
     company_id: int
     title: str = Field(max_length=200)
-    description: str = Field(max_length=10000)
+    description: str = Field(max_length=3000)
     location: str = Field(max_length=200)
     employment_type: Literal["Full-time", "Part-time", "Internship", "Contract", "Remote"]
-    skills_required: str = Field(max_length=2000)
+    skills_required: str = Field(max_length=500)
     salary_range: Optional[str] = Field(default=None, max_length=100)
     deadline: Optional[datetime] = None
 

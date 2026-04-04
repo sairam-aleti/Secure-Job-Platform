@@ -190,43 +190,27 @@ def home():
     return {"status": "Secure Job Platform Active", "version": "2.0"}
 
 # ==================== REGISTRATION ====================
+from typing import Dict, Any
+PENDING_REGISTRATIONS: Dict[str, dict] = {}
 
-@app.post("/register", response_model=schemas.UserResponse)
+@app.post("/register")
 @limiter.limit("10/minute")
-def register_user(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
+def register_user(request: Request, user: schemas.UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # 1. Check if email already exists
     existing_user = db.query(models.User).filter(models.User.email == user.email).first()
     
     if existing_user:
-        if existing_user.is_verified:
-            raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Email already registered")
         
-        # IF USER EXISTS BUT IS NOT VERIFIED: Allow update
-        existing_user.hashed_password = security.hash_password(user.password)
-        existing_user.full_name = user.full_name
-        existing_user.role = user.role
-        db.commit()
-        db.refresh(existing_user)
-        return existing_user
+    # Store pending registration instead of creating user
+    otp_code = otp.generate_otp()
+    PENDING_REGISTRATIONS[user.email] = {
+        "user_data": user.model_dump() if hasattr(user, 'model_dump') else user.dict(),
+        "otp_code": otp_code,
+        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
+    }
     
-    # 2. Create new user (admin can register but needs superadmin approval for destructive actions)
-    hashed_password = security.hash_password(user.password)
-    new_user = models.User(
-        email=user.email,
-        hashed_password=hashed_password,
-        full_name=user.full_name,
-        role=user.role,
-        is_verified=False,
-        is_admin_approved=(user.role != "admin")  # Non-admins are auto-approved
-    )
-    db.add(new_user)
-    
-    # Audit log
-    create_audit_log(db, "USER_REGISTERED", user.email, f"Role: {user.role}")
-    
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+    return {"message": "Registration pending, verifying OTP", "email": user.email}
 
 # ==================== LOGIN (2-Step OTP for users, direct for superadmin) ====================
 
@@ -380,6 +364,25 @@ async def send_otp(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
+    # Check if pending registration
+    if otp_request.email in PENDING_REGISTRATIONS:
+        pending = dict(PENDING_REGISTRATIONS[otp_request.email])
+        user_data = dict(pending.get("user_data", {}))
+        user_name = str(user_data.get("full_name", ""))
+        
+        otp_code = otp.generate_otp()
+        PENDING_REGISTRATIONS[otp_request.email]["otp_code"] = otp_code
+        PENDING_REGISTRATIONS[otp_request.email]["expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=10)
+        
+        message = MessageSchema(
+            subject="FortKnox Security - Your Verification Code",
+            recipients=[otp_request.email],
+            body=f"Hello {user_name},\n\nYour security verification code is: {otp_code}\n\nThis code will expire in 2 minutes.\n\nStay Secure,\nFortKnox Team",
+            subtype=MessageType.plain
+        )
+        background_tasks.add_task(fastmail.send_message, message)
+        return {"message": "A verification code has been sent to your registered email.", "dev_otp": None}
+        
     user = db.query(models.User).filter(models.User.email == otp_request.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -419,6 +422,39 @@ async def send_otp(
 @app.post("/verify-otp")
 @limiter.limit("10/minute")
 def verify_otp_code(request: Request, otp_verify: schemas.OTPVerify, db: Session = Depends(get_db)):
+    # Check Pending Registrations FIRST
+    if otp_verify.email in PENDING_REGISTRATIONS:
+        pending = dict(PENDING_REGISTRATIONS[otp_verify.email])
+        expires_at = pending.get("expires_at", datetime.now(timezone.utc))
+        if isinstance(expires_at, datetime) and expires_at < datetime.now(timezone.utc):
+            PENDING_REGISTRATIONS.pop(otp_verify.email, None)
+            raise HTTPException(status_code=400, detail="Registration expired. Please register again.")
+            
+        pending_otp = pending.get("otp_code")
+        if pending_otp != otp_verify.otp_code:
+            raise HTTPException(status_code=400, detail="Invalid OTP code.")
+            
+        # Account Creation on Verification
+        user_data = dict(pending.get("user_data", {}))
+        hashed_pw = security.hash_password(str(user_data.get("password", "")))
+        new_user = models.User(
+            email=str(user_data.get("email")),
+            hashed_password=hashed_pw,
+            full_name=str(user_data.get("full_name")),
+            role=str(user_data.get("role")),
+            is_verified=True,
+            is_admin_approved=(str(user_data.get("role")) != "admin")
+        )
+        db.add(new_user)
+        create_audit_log(db, "USER_REGISTERED_AND_VERIFIED", str(user_data.get("email", "")), f"Role: {user_data.get('role', '')}")
+        db.commit()
+        
+        PENDING_REGISTRATIONS.pop(otp_verify.email, None)
+        return {
+            "message": "Email verified and account successfully created",
+            "is_verified": True
+        }
+
     user = db.query(models.User).filter(models.User.email == otp_verify.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1783,8 +1819,9 @@ async def upload_profile_picture(
     
     # Save to uploads directory with a unique name
     import uuid
-    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-    safe_filename = f"pfp_{user.id}_{uuid.uuid4().hex[:8]}.{ext}"
+    ui = str(uuid.uuid4())
+    ext = str(file.filename).split(".")[-1] if file.filename and "." in file.filename else "jpg"
+    safe_filename = f"pfp_{user.id}_{ui[:8]}.{ext}" # pyre-ignore
     filepath = os.path.join("uploads", safe_filename)
     
     # Delete old picture if exists
@@ -1794,7 +1831,7 @@ async def upload_profile_picture(
             os.remove(old_path)
     
     with open(filepath, "wb") as f:
-        f.write(contents)
+        f.write(bytes(contents)) # pyre-ignore[6]
     
     user.profile_picture = safe_filename
     create_audit_log(db, "PROFILE_PICTURE_UPDATED", user.email)
@@ -2072,13 +2109,13 @@ def add_group_members(
     ).all()
     existing_ids = {m[0] for m in existing}
     
-    added = 0
+    added = int(0)
     for member_id in data.member_ids:
         if member_id not in existing_ids:
             member = db.query(models.User).filter(models.User.id == member_id).first()
             if member:
                 db.add(models.GroupMember(group_id=group_id, user_id=member_id))
-                added += 1
+                added = int(added + 1) # pyre-ignore
     
     create_audit_log(db, "GROUP_MEMBERS_ADDED", user.email, f"Group: {group.name}, Added: {added}")
     db.commit()
