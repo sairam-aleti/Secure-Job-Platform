@@ -4,27 +4,17 @@
    Chat, Network, Apply, PostJob, etc.
    ======================================== */
 
-/* ---- Grid Background Overlay ---- */
-.app-grid-bg {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-size: 60px 60px;
-  background-image:
-    linear-gradient(to right, var(--cy-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--cy-grid) 1px, transparent 1px);
-  z-index: 0;
-  pointer-events: none;
+/* Note: Global Security Background (.app-grid-bg) moved to index.css */
+
+/* Remove security-net-overlay (tech pattern) */
+.security-net-overlay {
+  display: none;
 }
 
 /* ---- Page Shell ---- */
 .app-layout {
   min-height: 100vh;
-  background: var(--cy-bg);
   position: relative;
-  z-index: 5;
 }
 
 /* ---- Navigation Bar (CyFocus Glass) ---- */
@@ -145,8 +135,7 @@
 
 /* ---- Page Hero Banner (CyFocus) ---- */
 .page-hero {
-  border-bottom: 1px dashed var(--cy-border);
-  padding: 48px 60px;
+  padding: 32px 60px 24px;
   position: relative;
 }
 
@@ -545,6 +534,19 @@
   flex: 0 0 160px;
 }
 
+.form-row .privacy-select select {
+  text-align: center;
+  text-align-last: center;
+  font-size: 13px;
+  padding: 8px 8px;
+  cursor: pointer;
+}
+
+.form-row .privacy-select label {
+  text-align: center;
+  font-size: 10px;
+}
+
 .form-group {
   margin-bottom: 16px;
 }
@@ -799,6 +801,181 @@
   border: 1px dashed rgba(5, 150, 105, 0.3);
 }
 
+/* ========================================
+   REDESIGN: Metric Cards & Tiles
+   ======================================== */
+
+.metric-card {
+  background: #ffffff !important;
+  border: 0.5px solid var(--cy-border) !important;
+  border-radius: 12px !important;
+  padding: 1rem 1.25rem !important;
+  box-shadow: none !important;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.metric-card::after {
+  display: none !important;
+}
+
+.metric-card h4 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cy-text-mute);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin: 0 0 16px 0;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.metric-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.metric-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.metric-tile {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 90px;
+}
+
+
+.metric-tile-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cy-text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  min-height: 26px;
+  display: flex;
+  align-items: flex-start;
+}
+
+
+.metric-tile-value {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--cy-text-main);
+  line-height: 1;
+}
+
+
+/* Color Accents */
+.accent-blue { color: #0a66c2 !important; }
+.accent-amber { color: #d97706 !important; }
+.accent-red { color: #dc2626 !important; }
+.accent-green { color: #059669 !important; }
+.accent-purple { color: #7c3aed !important; }
+
+/* Activity List */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 12px;
+}
+
+
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 41px; /* Matching .account-info-row perfectly */
+  padding: 4px 0;
+  color: var(--cy-text-main);
+  border-bottom: 0.5px solid #eee;
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px; /* Align with the center of the first 13px line */
+}
+
+
+
+.activity-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-time {
+  font-size: 10px;
+  color: var(--cy-text-mute);
+  font-family: 'Inter', sans-serif;
+  margin-top: -1px;
+}
+
+
+/* Account Info Rows */
+.account-info-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.account-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 0.5px solid #eee;
+}
+
+.account-info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-size: 13px;
+  color: var(--cy-text-mute);
+}
+
+.info-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cy-text-main);
+}
+
+/* Responsive Grids */
+@media (max-width: 768px) {
+  .metric-grid-4, .metric-grid-3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .metric-grid-4, .metric-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+
 /* ---- Admin Action Buttons ---- */
 .action-buttons {
   display: flex;
@@ -1022,12 +1199,14 @@
     gap: 8px;
   }
 }
+
 /* ---- Notification Badges ---- */
 .badge-count {
   position: absolute;
   top: -8px;
   right: -8px;
-  background: #dc2626; /* Bright Red */
+  background: #dc2626;
+  /* Bright Red */
   color: white;
   font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
@@ -1046,6 +1225,13 @@
 }
 
 @keyframes badge-pop {
-  0% { transform: scale(0); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }

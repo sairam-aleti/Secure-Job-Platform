@@ -17,7 +17,8 @@ function ViewProfile() {
       setTargetProfile(res.data);
     } catch (err) {
       console.error(err);
-      setError("This profile is private or does not exist.");
+      const msg = err.response?.data?.detail || "This profile is private or does not exist.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -27,12 +28,12 @@ function ViewProfile() {
     fetchProfile();
   }, [fetchProfile]);
 
-  if (loading) return <div className="app-layout"><div className="app-grid-bg"></div><main className="app-content"><p style={{textAlign:'center', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', marginTop: '80px'}}>Loading secure profile...</p></main></div>;
+  if (loading) return <div className="app-layout"><main className="app-content"><p style={{textAlign:'center', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', marginTop: '80px'}}>Loading secure profile...</p></main></div>;
 
   if (error || !targetProfile) {
     return (
       <div className="app-layout">
-        <div className="app-grid-bg"></div>
+        
         <main className="app-content">
           <div className="error-card">
             <h2>Access Restricted</h2>
@@ -51,7 +52,7 @@ function ViewProfile() {
 
   return (
     <div className="app-layout">
-      <div className="app-grid-bg"></div>
+      
 
       <nav className="app-nav">
         <a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a>

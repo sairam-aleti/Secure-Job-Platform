@@ -4,25 +4,14 @@
    ======================================== */
 
 /* ---- Page Background Overlay ---- */
+/* Note: Using Global Security Background (.app-grid-bg) from index.css */
 .auth-grid-bg {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 0;
-  pointer-events: none;
-  background-color: var(--cy-bg);
-  /* background-image: 
-    linear-gradient(rgba(10, 102, 194, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(10, 102, 194, 0.03) 1px, transparent 1px);
-  background-size: 50px 50px; */
+  display: none;
 }
 
 /* ---- Page Wrapper ---- */
 .auth-wrapper {
   position: relative;
-  z-index: 5;
   min-height: 100vh;
   width: 100%;
 }
@@ -696,7 +685,8 @@
   display: flex;
   justify-content: center;
   gap: 56px;
-  background: var(--cy-bg-off);
+  background: rgba(249, 250, 251, 0.5);
+  backdrop-filter: blur(8px);
 }
 
 .auth-feature-item {

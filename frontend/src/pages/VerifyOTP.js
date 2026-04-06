@@ -71,7 +71,7 @@ function VerifyOTP() {
 
   return (
     <>
-      <div className="auth-grid-bg"></div>
+
       <div className="auth-wrapper">
 
         <nav className="auth-navbar">

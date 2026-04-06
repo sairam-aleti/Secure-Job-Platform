@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -15,11 +15,16 @@ import Chat from './pages/Chat';
 import Network from './pages/Network';
 import ViewProfile from './pages/ViewProfile';
 import ForgotPassword from './pages/ForgotPassword';
+import SecurityBackground from './components/SecurityBackground';
 import './App.css';
 
-function App() {
+function AppContent() {
+  const location = useLocation();
+  const isLanding = location.pathname === '/';
+
   return (
-    <Router>
+    <>
+      {!isLanding && <SecurityBackground />}
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
@@ -37,6 +42,14 @@ function App() {
         <Route path="/user-profile/:userId" element={<ViewProfile />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
       </Routes>
+    </>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AppContent />
     </Router>
   );
 }

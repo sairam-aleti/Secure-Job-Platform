@@ -128,6 +128,7 @@ function Login() {
 
   return (
     <>
+
       <nav className="auth-navbar">
         <a href="/" className="auth-navbar-brand">Fort<span>Knox</span></a>
         <div className="auth-navbar-center">

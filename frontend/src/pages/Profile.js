@@ -23,7 +23,7 @@ function Profile() {
     education_privacy: 'public',
     share_view_history: true,
   });
-  
+
   const [userEmail, setUserEmail] = useState('');
   const [currentPicture, setCurrentPicture] = useState(null);
   const [picturePreview, setPicturePreview] = useState(null);
@@ -31,7 +31,7 @@ function Profile() {
   const [pictureUploading, setPictureUploading] = useState(false);
   const [pictureMessage, setPictureMessage] = useState('');
   const fileInputRef = useRef(null);
-  
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -42,6 +42,8 @@ function Profile() {
   const [deleteOtp, setDeleteOtp] = useState('');
   const [deleteStatus, setDeleteStatus] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [skillTags, setSkillTags] = useState([]);
+  const [skillInput, setSkillInput] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -75,6 +77,11 @@ function Profile() {
         education_privacy: data.education_privacy || 'public',
         share_view_history: data.share_view_history ?? true,
       });
+      // Parse skills into tags
+      const rawSkills = data.skills || '';
+      if (rawSkills) {
+        setSkillTags(rawSkills.split(',').map(s => s.trim()).filter(s => s));
+      }
     } catch (err) {
       setError('Failed to load profile');
       if (err.response?.status === 401) {
@@ -100,7 +107,8 @@ function Profile() {
     setError('');
 
     try {
-      await profileAPI.updateProfile(profile);
+      const submitData = { ...profile, skills: skillTags.join(', ') };
+      await profileAPI.updateProfile(submitData);
       setMessage('Profile updated successfully!');
     } catch (err) {
       let errorMsg = err.response?.data?.detail || 'Update failed';
@@ -114,7 +122,7 @@ function Profile() {
   const handlePictureSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type)) {
       setPictureMessage('Only JPEG, PNG, and WebP images are allowed');
@@ -136,7 +144,7 @@ function Profile() {
     if (!pictureFile) return;
     setPictureUploading(true);
     setPictureMessage('');
-    
+
     try {
       const formData = new FormData();
       formData.append('file', pictureFile);
@@ -199,20 +207,20 @@ function Profile() {
       setDeleteStatus("Please enter a 6-digit OTP.");
       return;
     }
-    
+
     setIsDeleting(true);
     setDeleteStatus("Verifying OTP and deleting account...");
-    
+
     try {
-      await userAPI.deleteAccount({ otp_code: deleteOtp }); 
+      await userAPI.deleteAccount({ otp_code: deleteOtp });
       alert("Account permanently deleted.");
       handleLogout();
     } catch (err) {
       let errorMsg = 'Deletion failed. Check console.';
       if (err.response?.data?.detail) {
-          errorMsg = Array.isArray(err.response.data.detail) 
-            ? err.response.data.detail[0].msg 
-            : err.response.data.detail;
+        errorMsg = Array.isArray(err.response.data.detail)
+          ? err.response.data.detail[0].msg
+          : err.response.data.detail;
       }
       setDeleteStatus("Error: " + errorMsg);
       setIsDeleting(false);
@@ -222,7 +230,7 @@ function Profile() {
   if (loading) {
     return (
       <div className="app-layout">
-        <div className="app-grid-bg"></div>
+        <div className="app-grid-bg"><div className="orb-1" /><div className="orb-2" /><div className="orb-3" /></div>
         <main className="app-content">
           <p style={{ textAlign: 'center', marginTop: '80px', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px' }}>Loading profile...</p>
         </main>
@@ -234,7 +242,7 @@ function Profile() {
 
   return (
     <div className="app-layout">
-      <div className="app-grid-bg"></div>
+
 
       <nav className="app-nav">
         <a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a>
@@ -248,9 +256,9 @@ function Profile() {
               <span style={{ color: 'var(--cy-text-mute)', fontSize: '10px', marginRight: '8px', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '1px' }}>
                 Welcome Back, {profile.full_name}
               </span>
-              <div 
-                style={{ 
-                  width: '32px', height: '32px', borderRadius: '50%', background: 'var(--cy-glass-bg)', 
+              <div
+                style={{
+                  width: '32px', height: '32px', borderRadius: '50%', background: 'var(--cy-glass-bg)',
                   border: '1px dashed var(--cy-border)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   overflow: 'hidden', position: 'relative'
                 }}
@@ -258,7 +266,7 @@ function Profile() {
                 {currentPicture ? (
                   <img src={`https://127.0.0.1:8000/uploads/${currentPicture}`} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cy-text-mute)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cy-text-mute)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                 )}
               </div>
             </div>
@@ -271,9 +279,9 @@ function Profile() {
         <div className="page-hero-inner">
           <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: 'var(--cy-brand)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '12px' }}>PROFILE_EDITOR</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <div 
-              style={{ 
-                width: '64px', height: '64px', borderRadius: '50%', background: 'var(--cy-glass-bg)', 
+            <div
+              style={{
+                width: '64px', height: '64px', borderRadius: '50%', background: 'var(--cy-glass-bg)',
                 border: '2px dashed var(--cy-border)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 overflow: 'hidden', position: 'relative', flexShrink: 0
               }}
@@ -281,7 +289,7 @@ function Profile() {
               {currentPicture ? (
                 <img src={`https://127.0.0.1:8000/uploads/${currentPicture}`} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--cy-text-mute)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--cy-text-mute)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
               )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -300,7 +308,7 @@ function Profile() {
             <span className="card-badge" style={{ background: 'rgba(10,102,194,0.08)', color: 'var(--cy-brand)' }}>Identity</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
-            <div 
+            <div
               onClick={() => fileInputRef.current?.click()}
               style={{
                 width: '100px', height: '100px', borderRadius: '50%',
@@ -317,10 +325,10 @@ function Profile() {
               )}
             </div>
             <div style={{ flex: 1 }}>
-              <input 
+              <input
                 ref={fileInputRef}
-                type="file" 
-                accept="image/jpeg,image/png,image/webp" 
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
                 onChange={handlePictureSelect}
                 style={{ display: 'none' }}
               />
@@ -328,8 +336,8 @@ function Profile() {
                 Click the avatar to select a new picture (JPEG, PNG, WebP • max 5MB)
               </p>
               {pictureFile && (
-                <button 
-                  type="button" className="btn-upload" 
+                <button
+                  type="button" className="btn-upload"
                   onClick={handlePictureUpload} disabled={pictureUploading}
                   style={{ padding: '8px 20px', fontSize: '11px', marginRight: '8px' }}
                 >
@@ -337,8 +345,8 @@ function Profile() {
                 </button>
               )}
               {currentPicture && !pictureFile && (
-                <button 
-                  type="button" className="btn-logout" 
+                <button
+                  type="button" className="btn-logout"
                   onClick={async () => {
                     if (window.confirm('Remove profile picture?')) {
                       try {
@@ -356,7 +364,7 @@ function Profile() {
                 </button>
               )}
               {pictureMessage && (
-                <p style={{ 
+                <p style={{
                   fontSize: '12px', marginTop: '8px', fontFamily: 'JetBrains Mono, monospace',
                   color: pictureMessage.includes('updated') ? '#15803d' : '#dc2626'
                 }}>{pictureMessage}</p>
@@ -372,14 +380,14 @@ function Profile() {
             <div className="form-group">
               <label>Full Name</label>
               <input type="text" name="full_name" value={profile.full_name} onChange={handleChange} placeholder="Your full name" maxLength={50} />
-              <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.full_name || '').length}/50</div>
+              <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{(profile.full_name || '').length}/50</div>
             </div>
 
             <div className="form-row">
               <div className="form-group">
                 <label>Headline</label>
                 <input type="text" name="headline" value={profile.headline} onChange={handleChange} placeholder="e.g., Software Engineer at Google" maxLength={220} />
-                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.headline || '').length}/220</div>
+                <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{(profile.headline || '').length}/220</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -395,7 +403,7 @@ function Profile() {
               <div className="form-group">
                 <label>Location</label>
                 <input type="text" name="location" value={profile.location} onChange={handleChange} placeholder="e.g., New Delhi, India" maxLength={100} />
-                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.location || '').length}/100</div>
+                <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{(profile.location || '').length}/100</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -411,7 +419,7 @@ function Profile() {
               <div className="form-group">
                 <label>Bio</label>
                 <textarea name="bio" value={profile.bio} onChange={handleChange} placeholder="Tell us about yourself..." rows="4" maxLength={1000} />
-                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.bio || '').length}/1000</div>
+                <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{(profile.bio || '').length}/1000</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -426,9 +434,36 @@ function Profile() {
             {profile.role !== 'recruiter' && (
               <div className="form-row">
                 <div className="form-group">
-                  <label>Skills (comma separated)</label>
-                  <input type="text" name="skills" value={profile.skills} onChange={handleChange} placeholder="e.g., Python, React, Security" maxLength={500} />
-                  <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.skills || '').length}/500</div>
+                  <label>Skills (Press Enter to add tag)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                    {skillTags.map((tag, index) => (
+                      <div key={index} style={{ background: 'rgba(10,102,194,0.08)', color: 'var(--cy-brand)', border: '1px dashed rgba(10,102,194,0.25)', padding: '5px 12px', borderRadius: '16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600', fontFamily: 'Space Grotesk, sans-serif' }}>
+                        {tag}
+                        <span onClick={() => setSkillTags(skillTags.filter((_, i) => i !== index))} style={{ cursor: 'pointer', fontWeight: 'bold', opacity: 0.7, lineHeight: 1 }}>✕</span>
+                      </div>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const val = skillInput.trim();
+                        if (!val) return;
+                        if (val.length > 20) { setError('Skill tag cannot exceed 20 characters.'); return; }
+                        if (skillTags.length >= 30) { setError('You can only add up to 30 skills.'); return; }
+                        if (!/[A-Za-z]/.test(val)) { setError('Tags must contain at least one alphabet character.'); return; }
+                        if (!skillTags.includes(val)) { setSkillTags([...skillTags, val]); }
+                        setSkillInput('');
+                        setError('');
+                      }
+                    }}
+                    placeholder="e.g. Python, React, Security (max 30)"
+                    maxLength={20}
+                  />
+                  <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{skillTags.length}/30 skills</div>
                 </div>
                 <div className="form-group privacy-select">
                   <label>Privacy</label>
@@ -445,7 +480,7 @@ function Profile() {
               <div className="form-group">
                 <label>Experience</label>
                 <textarea name="experience" value={profile.experience} onChange={handleChange} placeholder="Describe your work experience..." rows="4" maxLength={1000} />
-                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.experience || '').length}/1000</div>
+                <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{(profile.experience || '').length}/1000</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -461,7 +496,7 @@ function Profile() {
               <div className="form-group">
                 <label>Education</label>
                 <textarea name="education" value={profile.education} onChange={handleChange} placeholder="Describe your education..." rows="4" maxLength={1000} />
-                <div style={{fontSize:'10px', color:'var(--cy-text-mute)', textAlign:'right', marginTop:'2px'}}>{(profile.education || '').length}/1000</div>
+                <div style={{ fontSize: '10px', color: 'var(--cy-text-mute)', textAlign: 'right', marginTop: '2px' }}>{(profile.education || '').length}/1000</div>
               </div>
               <div className="form-group privacy-select">
                 <label>Privacy</label>
@@ -480,7 +515,7 @@ function Profile() {
                   type="checkbox"
                   name="share_view_history"
                   checked={profile.share_view_history}
-                  onChange={(e) => setProfile({...profile, share_view_history: e.target.checked})}
+                  onChange={(e) => setProfile({ ...profile, share_view_history: e.target.checked })}
                   style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: 'var(--cy-brand)' }}
                 />
                 <div>
@@ -504,7 +539,7 @@ function Profile() {
         </motion.div>
 
         <motion.div className="card" style={{ marginTop: '40px', borderLeft: '3px solid #dc2626' }} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }}>
-          
+
           {!showDeleteZone ? (
             <div>
               <div className="card-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
@@ -513,8 +548,8 @@ function Profile() {
               <p style={{ color: 'var(--cy-text-mute)', marginBottom: '15px', fontSize: '14px' }}>
                 Permanently delete your account and all associated data. This action requires OTP verification via virtual keyboard to prevent malware hijacking.
               </p>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => { setShowDeleteZone(true); requestDeleteOTP(); }}
                 style={{ background: '#dc2626', color: 'white', padding: '12px 24px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700', fontFamily: 'Space Grotesk, sans-serif', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '12px', boxShadow: '0 8px 16px rgba(220,38,38,0.2)' }}
               >
@@ -525,9 +560,9 @@ function Profile() {
             <div style={{ textAlign: 'center', padding: '20px', background: 'rgba(185,28,28,0.04)', borderRadius: '12px', border: '1px dashed rgba(185,28,28,0.2)' }}>
               <h4 style={{ color: '#991b1b', marginBottom: '10px', fontFamily: 'Space Grotesk, sans-serif' }}>Verify Deletion</h4>
               <p style={{ color: '#991b1b', fontSize: '12px', marginBottom: '20px', fontFamily: 'JetBrains Mono, monospace' }}>{deleteStatus}</p>
-              
-              <div style={{ 
-                fontSize: '24px', letterSpacing: '8px', fontWeight: '700', 
+
+              <div style={{
+                fontSize: '24px', letterSpacing: '8px', fontWeight: '700',
                 fontFamily: 'Space Grotesk, sans-serif',
                 color: 'var(--cy-text-main)', background: 'rgba(255,255,255,0.6)',
                 padding: '15px', borderRadius: '8px', border: '1px dashed var(--cy-border)',
@@ -536,7 +571,7 @@ function Profile() {
                 {deleteOtp.padEnd(6, '·')}
               </div>
 
-              <VirtualKeyboard 
+              <VirtualKeyboard
                 onKeyPress={handleDeleteKeyPress}
                 onBackspace={handleDeleteBackspace}
                 onClear={handleDeleteClear}
@@ -544,16 +579,16 @@ function Profile() {
               />
 
               <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '15px' }}>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setShowDeleteZone(false)}
                   disabled={isDeleting}
                   className="btn-logout"
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={confirmDeleteAccount}
                   disabled={isDeleting || deleteOtp.length !== 6}
                   style={{ background: '#dc2626', color: 'white', border: 'none', padding: '10px 24px', borderRadius: '4px', cursor: isDeleting ? 'not-allowed' : 'pointer', fontWeight: '700', fontFamily: 'Space Grotesk, sans-serif', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '12px' }}

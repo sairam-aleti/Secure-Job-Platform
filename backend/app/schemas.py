@@ -397,8 +397,9 @@ class ReportReview(BaseModel):
 # --- GROUP MESSAGING SCHEMAS ---
 
 class GroupCreate(BaseModel):
-    name: str = Field(max_length=100)
+    name: str = Field(max_length=30)
     member_ids: list[int]
+
 
 class GroupAddMembers(BaseModel):
     member_ids: list[int]
@@ -408,9 +409,11 @@ class GroupResponse(BaseModel):
     name: str
     created_by: int
     created_at: datetime
+    member_count: int = 0
     
     class Config:
         from_attributes = True
+
 
 class GroupMessageCreate(BaseModel):
     encrypted_content: str = Field(max_length=50000)
@@ -452,3 +455,26 @@ class ChainVerifyResponse(BaseModel):
     total_blocks: int
     message: str
     broken_at: Optional[int] = None
+
+# --- CONTACT US ---
+class ContactSchema(BaseModel):
+    name: str = Field(max_length=50)
+    email: EmailStr
+    message: str = Field(max_length=300)
+
+# --- ADMIN DASHBOARD STATS ---
+
+class AdminDashboardStats(BaseModel):
+    total_users: int
+    job_seekers: int
+    recruiters: int
+    admins: int
+    jobs_posted: int
+    applications: int
+    pending_requests: int
+    system_logs: int
+    admin_approvals: int
+    suspended_users: int
+    verified_users: int
+    blockchain_records: int
+    reports_filed: int

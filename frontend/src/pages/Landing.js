@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useScroll, useTransform, useSpring, useMotionValue } from 'framer-motion';
+import { contactAPI } from '../services/api';
 import './Landing.css';
 
 // ======================================================================
@@ -316,11 +317,50 @@ const Landing = () => {
   const containerRef = useRef(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
+  // Contact form state
+  const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' });
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contactStatus, setContactStatus] = useState({ type: '', msg: '' });
+
   useEffect(() => {
     const handleMouse = (e) => setMousePos({ x: e.clientX, y: e.clientY });
     window.addEventListener('mousemove', handleMouse);
     return () => window.removeEventListener('mousemove', handleMouse);
   }, []);
+
+  const handleContactChange = (e) => {
+    setContactForm({ ...contactForm, [e.target.name]: e.target.value });
+  };
+
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    setContactStatus({ type: '', msg: '' });
+
+    const trimmedName = contactForm.name.trim();
+    const trimmedEmail = contactForm.email.trim();
+    const trimmedMessage = contactForm.message.trim();
+
+    if (!trimmedName || !trimmedEmail || !trimmedMessage) {
+      setContactStatus({ type: 'error', msg: 'Fields cannot be empty spaces.' });
+      return;
+    }
+
+    setContactLoading(true);
+    try {
+      await contactAPI.sendMessage({
+        name: trimmedName,
+        email: trimmedEmail,
+        message: trimmedMessage
+      });
+      setContactStatus({ type: 'success', msg: 'Message sent securely to FortKnox!' });
+      setContactForm({ name: '', email: '', message: '' });
+      setTimeout(() => setContactStatus({ type: '', msg: '' }), 3000);
+    } catch (error) {
+      setContactStatus({ type: 'error', msg: error.response?.data?.detail || 'Failed to send message securely.' });
+    } finally {
+      setContactLoading(false);
+    }
+  };
 
   const scrollToTop = (e) => { e.preventDefault(); window.scrollTo({ top: 0, left: 0, behavior: 'smooth' }); };
 
@@ -520,13 +560,29 @@ const Landing = () => {
               <div className="cy-bento">
                 <div className="cy-c-block span-8 cy-glass-panel">
                   <h3 style={{ fontSize: '24px', fontFamily: 'Space Grotesk', fontWeight: 700, marginBottom: '24px' }}>Send us a message</h3>
-                  <form onSubmit={(e) => e.preventDefault()}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                      <div className="cy-input-group"><label>Full Name</label><input type="text" className="cy-input" placeholder="Enter your name" /></div>
-                      <div className="cy-input-group"><label>Email Address</label><input type="email" className="cy-input" placeholder="name@domain.com" /></div>
+                  {contactStatus.msg && (
+                    <div style={{ marginBottom: '16px', padding: '12px', borderRadius: '4px', background: contactStatus.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', color: contactStatus.type === 'error' ? '#ef4444' : '#10b981', border: `1px solid ${contactStatus.type === 'error' ? '#ef4444' : '#10b981'}` }}>
+                      {contactStatus.msg}
                     </div>
-                    <div className="cy-input-group"><label>Message</label><textarea className="cy-textarea" placeholder="How can we help?"></textarea></div>
-                    <button type="submit" className="cy-btn cy-btn-primary" style={{ width: '100%', padding: '16px' }}>Send Message</button>
+                  )}
+                  <form onSubmit={handleContactSubmit}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                      <div className="cy-input-group">
+                        <label>Full Name</label>
+                        <input type="text" name="name" value={contactForm.name} onChange={handleContactChange} className="cy-input" placeholder="Enter your name" required maxLength={50} />
+                      </div>
+                      <div className="cy-input-group">
+                        <label>Email Address</label>
+                        <input type="email" name="email" value={contactForm.email} onChange={handleContactChange} className="cy-input" placeholder="name@domain.com" required maxLength={50} />
+                      </div>
+                    </div>
+                    <div className="cy-input-group">
+                      <label>Message</label>
+                      <textarea name="message" value={contactForm.message} onChange={handleContactChange} className="cy-textarea" placeholder="How can we help?" required maxLength={300}></textarea>
+                    </div>
+                    <button type="submit" className="cy-btn cy-btn-primary" style={{ width: '100%', padding: '16px' }} disabled={contactLoading}>
+                      {contactLoading ? 'Encrypting & Sending...' : 'Send Message'}
+                    </button>
                   </form>
                 </div>
 

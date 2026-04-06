@@ -43,6 +43,7 @@ export const authAPI = {
   register: (data) => api.post('/register', data),
   login: (data) => api.post('/login', data),
   loginVerifyOTP: (data) => api.post('/login/verify-otp', data),
+  refresh: () => api.post('/auth/refresh'),
   sendOTP: (email) => api.post('/send-otp', { email }),
   verifyOTP: (data) => api.post('/verify-otp', data),
   updatePublicKey: (data) => api.post('/users/public-key', data),
@@ -56,7 +57,10 @@ export const profileAPI = {
   updateProfile: (data) => api.put('/profile', data),
   uploadPicture: (formData) => api.put('/profile/picture', formData, { headers: { 'Content-Type': undefined } }),
   deletePicture: () => api.delete('/profile/picture'),
+  getRecentActivity: () => api.get('/profile/recent-activity'),
+  getLastLogin: () => api.get('/profile/last-login'),
 };
+
 
 export const userAPI = {
   getDirectory: (q = '', page = 1) => api.get(`/users/directory?q=${q}&page=${page}`),
@@ -75,6 +79,8 @@ export const connectionAPI = {
 export const companyAPI = {
   create: (data) => api.post('/companies', data),
   list: () => api.get('/companies'),
+  update: (id, data) => api.put(`/companies/${id}`, data),
+  delete: (id) => api.delete(`/companies/${id}`)
 };
 
 export const jobAPI = {
@@ -111,6 +117,7 @@ export const adminAPI = {
   suspendUser: (id) => api.post(`/admin/suspend/${id}`),
   activateUser: (id) => api.post(`/admin/activate/${id}`),
   deleteUser: (id) => api.delete(`/admin/delete/${id}`),
+  getStats: () => api.get('/admin/stats'),
   
   // Admin action queue
   requestAction: (data) => api.post('/admin/request-action', data),
@@ -142,6 +149,9 @@ export const groupAPI = {
   getMembers: (groupId) => api.get(`/groups/${groupId}/members`),
   addMembers: (groupId, data) => api.post(`/groups/${groupId}/members`, data),
   deleteGroup: (id) => api.delete(`/groups/${id}`),
+};
+export const contactAPI = {
+  sendMessage: (data) => api.post('/contact', data),
 };
 
 export default api;

@@ -47,6 +47,110 @@ code {
     monospace;
 }
 
+/* ========================================
+   GLOBAL SECURITY BACKGROUND (Mesh + Waves)
+   Used across all App and Auth pages
+   ======================================== */
+.app-grid-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bg-mesh {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(at 0% 0%, #f0f9ff 0%, transparent 50%),
+              radial-gradient(at 100% 0%, #e0f2fe 0%, transparent 50%),
+              radial-gradient(at 50% 50%, #f8fafc 0%, transparent 50%),
+              radial-gradient(at 0% 100%, #ffffff 0%, transparent 50%);
+  animation: meshGradient 20s ease infinite alternate;
+  z-index: 1;
+}
+
+/* Layer: Persistent Moving Waves (Middle to Bottom) */
+.app-grid-bg::before,
+.app-grid-bg::after {
+  content: "";
+  position: absolute;
+  width: 200%;
+  height: 60vh;
+  bottom: -2px;
+  left: 0;
+  z-index: 2;
+  /* Lightened Blue: #3B82F6 */
+  background: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 400'%3E%3Cpath fill='%233B82F6' fill-opacity='0.25' d='M0 200c200-50 400 50 600 0s400-50 600 0s400 50 400 50v200H0z'/%3E%3C/svg%3E") repeat-x bottom / 800px 400px,
+    linear-gradient(to top, rgba(59, 130, 246, 0.15) 0%, transparent 300px);
+  animation: movingWaveHorizontal 12s linear infinite;
+  transform: translate3d(0, 0, 0);
+}
+
+.app-grid-bg::after {
+  height: 55vh;
+  background: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 400'%3E%3Cpath fill='%233B82F6' fill-opacity='0.15' d='M0 200c250 50 500-50 750 0s500 50 750 0s250-50 100-50v200H0z'/%3E%3C/svg%3E") repeat-x bottom / 800px 400px,
+    linear-gradient(to top, rgba(59, 130, 246, 0.1) 0%, transparent 250px);
+  animation: movingWaveHorizontal 18s linear infinite reverse;
+  opacity: 1;
+  z-index: 3;
+}
+
+@keyframes meshGradient {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05) translate(10px, -10px); }
+  100% { transform: scale(1) translate(-10px, 10px); }
+}
+
+@keyframes movingWaveHorizontal {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-800px); }
+}
+
+@keyframes floatOrb {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, 40px) scale(1.1); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+/* Floating Orbs */
+.orb-1, .orb-2, .orb-3 {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.orb-1 {
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(10, 102, 194, 0.08) 0%, transparent 70%);
+  top: -10%; right: -10%;
+  animation: floatOrb 20s ease-in-out infinite;
+}
+
+.orb-2 {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
+  bottom: -5%; left: -5%;
+  animation: floatOrb 25s ease-in-out infinite reverse;
+}
+
+.orb-3 {
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(10, 102, 194, 0.03) 0%, transparent 70%);
+  top: 30%; left: 20%;
+  animation: floatOrb 18s ease-in-out infinite;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -76,6 +180,53 @@ img {
 .cy-dot-grid {
   background-image: radial-gradient(var(--cy-border) 1px, transparent 1px);
   background-size: 20px 20px;
+}
+
+/* ---- SPLASH EFFECT STYLES (WAVE-ONLY) ---- */
+.splash-ripple {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--cy-brand);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, transparent 70%);
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.owasp-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  min-width: 250px;
+}
+
+.label-content {
+  background: #FFFFFF;
+  border: 2px solid #000000;
+  border-radius: 4px;
+  padding: 14px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 8px 8px 0px rgba(0, 0, 0, 0.1);
+}
+
+.vulnerability-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 800;
+}
+
+.vulnerability-name {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 16px;
+  color: #000000; /* Solid Black */
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 /* ========================================

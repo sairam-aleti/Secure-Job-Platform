@@ -74,11 +74,11 @@ function Apply() {
     }
   };
 
-  if (loading) return <div className="app-layout"><div className="app-grid-bg"></div><main className="app-content"><p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: 'var(--cy-text-mute)', textAlign: 'center', marginTop: '80px' }}>Loading...</p></main></div>;
+  if (loading) return <div className="app-layout"><main className="app-content"><p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: 'var(--cy-text-mute)', textAlign: 'center', marginTop: '80px' }}>Loading...</p></main></div>;
 
   return (
     <div className="app-layout">
-      <div className="app-grid-bg"></div>
+      
 
       <nav className="app-nav">
         <a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a>

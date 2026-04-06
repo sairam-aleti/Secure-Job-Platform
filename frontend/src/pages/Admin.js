@@ -11,7 +11,9 @@ function Admin() {
   const [actionQueue, setActionQueue] = useState([]);
   const [reports, setReports] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [platformStats, setPlatformStats] = useState(null);
   const [loading, setLoading] = useState(true);
+
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [activeTab, setActiveTab] = useState('users');
@@ -83,8 +85,10 @@ function Admin() {
     try {
       const promises = [
         adminAPI.listUsers(),
-        api.get('/admin/audit-logs')
+        api.get('/admin/audit-logs'),
+        adminAPI.getStats()
       ];
+
       
       if (role === 'superadmin') {
         promises.push(adminAPI.getActionQueue());
@@ -92,10 +96,12 @@ function Admin() {
         promises.push(adminAPI.getActionQueue().catch(() => ({ data: [] })));
       }
       
-      const results = await Promise.all(promises);
-      setUsers(results[0].data);
-      setLogs(results[1].data);
-      setActionQueue(results[2].data || []);
+      const [usersRes, logsRes, statsRes, queueRes] = await Promise.all(promises);
+      setUsers(usersRes.data);
+      setLogs(logsRes.data);
+      setPlatformStats(statsRes.data);
+      setActionQueue(queueRes.data || []);
+
       
       try {
         const reportsRes = await adminAPI.getReports();
@@ -199,6 +205,7 @@ function Admin() {
       await adminAPI.mineBlock();
       setActionMessage('New block mined successfully!');
       await fetchBlockchain();
+      fetchData(currentUser.role); // Refresh top stats card
     } catch (err) {
       setActionMessage(err.response?.data?.detail || 'Mining failed');
     } finally {
@@ -209,7 +216,7 @@ function Admin() {
   if (loading) {
     return (
       <div className="app-layout">
-        <div className="app-grid-bg"></div>
+  
         <nav className="app-nav"><a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a></nav>
         <main className="app-content">
           <p style={{ textAlign: 'center', marginTop: '80px', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px' }}>Loading Admin Panel...</p>
@@ -221,7 +228,7 @@ function Admin() {
   if (!isAdmin) {
     return (
       <div className="app-layout">
-        <div className="app-grid-bg"></div>
+  
         <nav className="app-nav"><a href="/dashboard" className="nav-brand">Fort<span>Knox</span></a></nav>
         <main className="app-content">
           <div className="error-message" style={{ margin: '80px auto', maxWidth: '400px' }}>{error || 'Access Denied'}</div>
@@ -246,7 +253,7 @@ function Admin() {
 
   return (
     <div className="app-layout">
-      <div className="app-grid-bg"></div>
+
 
       {/* ---- POPUP MODAL ---- */}
       {showPopup && (
@@ -374,30 +381,56 @@ function Admin() {
 
       <main className="app-content">
         {/* STATS */}
-        <motion.div className="stats-row" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
-          <motion.div className="stat-item" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
-            <div className="stat-label">Total Users</div>
-            <div className="stat-value">{users.length}</div>
-          </motion.div>
-          <motion.div className="stat-item" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
-            <div className="stat-label">System Logs</div>
-            <div className="stat-value">{logs.length}</div>
-          </motion.div>
-          {isSuperAdmin && (
-            <motion.div className="stat-item" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
-              <div className="stat-label">Pending Requests</div>
-              <div className="stat-value" style={{ color: pendingRequests.length > 0 ? '#dc2626' : '#059669' }}>
-                {pendingRequests.length}
+        <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '20px' }}>
+            {/* SYSTEM OVERVIEW CARD */}
+            <motion.div className="metric-card" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} style={{ marginBottom: 0 }}>
+
+              <h4>System Overview</h4>
+              <div className="metric-grid metric-grid-4">
+                <div className="metric-tile">
+                  <span className="metric-tile-label">System Logs</span>
+                  <span className="metric-tile-value accent-blue">{platformStats?.system_logs || 0}</span>
+                </div>
+                <div className="metric-tile">
+                  <span className="metric-tile-label">Admin Approvals</span>
+                  <span className="metric-tile-value accent-amber">{platformStats?.admin_approvals || 0}</span>
+                </div>
+                <div className="metric-tile">
+                  <span className="metric-tile-label">Suspended Users</span>
+                  <span className="metric-tile-value accent-red">{platformStats?.suspended_users || 0}</span>
+                </div>
+                <div className="metric-tile">
+                  <span className="metric-tile-label">Verified Users</span>
+                  <span className="metric-tile-value accent-green">{platformStats?.verified_users || 0}</span>
+                </div>
               </div>
             </motion.div>
-          )}
-          <motion.div className="stat-item" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
-            <div className="stat-label">Your Role</div>
-            <div className="stat-value" style={{ color: '#059669', fontSize: '16px' }}>
-              {isSuperAdmin ? 'Superadmin' : 'Admin'}
-            </div>
-          </motion.div>
+
+            {/* BLOCKCHAIN & REPORTS CARD */}
+            <motion.div className="metric-card" variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} style={{ marginBottom: 0 }}>
+
+              <h4>Blockchain & Reports</h4>
+              <div className="metric-grid metric-grid-3">
+                <div className="metric-tile">
+                  <span className="metric-tile-label">Blockchain Records</span>
+                  <span className="metric-tile-value accent-purple">{platformStats?.blockchain_records || 0}</span>
+                </div>
+                <div className="metric-tile">
+                  <span className="metric-tile-label">Reports Filed</span>
+                  <span className="metric-tile-value accent-red">{platformStats?.reports_filed || 0}</span>
+                </div>
+                <div className="metric-tile">
+                  <span className="metric-tile-label">Your Role</span>
+                  <span className="metric-tile-value accent-blue" style={{ fontSize: '16px', fontWeight: '700' }}>
+                    {isSuperAdmin ? 'Superadmin' : 'Admin'}
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          </div>
         </motion.div>
+
 
         {actionMessage && <div className="success-message">{actionMessage}</div>}
         {error && <div className="error-message">{error}</div>}
@@ -828,16 +861,17 @@ function Admin() {
                           {block.log_count} logs
                         </span>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                        <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                        <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', border: '0.5px solid #eee' }}>
                           <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--cy-text-mute)', textTransform: 'uppercase', letterSpacing: '1px' }}>Block Hash</span>
-                          <p style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--cy-text-main)', wordBreak: 'break-all', margin: '2px 0 0' }}>{block.block_hash}</p>
+                          <p style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--cy-text-main)', wordBreak: 'break-all', margin: '4px 0 0', lineHeight: '1.4' }}>{block.block_hash}</p>
                         </div>
-                        <div>
+                        <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', border: '0.5px solid #eee' }}>
                           <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--cy-text-mute)', textTransform: 'uppercase', letterSpacing: '1px' }}>Previous Hash</span>
-                          <p style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--cy-text-main)', wordBreak: 'break-all', margin: '2px 0 0' }}>{block.previous_block_hash}</p>
+                          <p style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--cy-text-main)', wordBreak: 'break-all', margin: '4px 0 0', lineHeight: '1.4' }}>{block.previous_block_hash}</p>
                         </div>
                       </div>
+
                       <div style={{ marginTop: '10px', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--cy-text-mute)' }}>
                         Mined: {new Date(block.timestamp).toLocaleString('en-GB')}
                       </div>

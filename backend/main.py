@@ -6,6 +6,14 @@ from fastapi.responses import Response, FileResponse  # pyre-ignore[21]
 from sqlalchemy.orm import Session  # pyre-ignore[21]
 from typing import Optional, List, cast
 from app import models, schemas, security, auth, otp, encryption  # pyre-ignore[21]
+from app.email_templates import (
+    get_otp_email_html,
+    get_registration_otp_html,
+    get_password_reset_html,
+    get_suspension_html,
+    get_admin_approval_html
+)
+
 from app.database import engine, get_db  # pyre-ignore[21]
 from slowapi import Limiter, _rate_limit_exceeded_handler  # pyre-ignore[21]
 from slowapi.util import get_remote_address  # pyre-ignore[21]
@@ -279,14 +287,15 @@ async def login(
     create_audit_log(db, "LOGIN_OTP_SENT", user.email, f"IP: {request.client.host}")
     db.commit()
     
-    # Send OTP via email using the same fastmail as registration
+    # Send OTP via email — styled HTML
     message = MessageSchema(
-        subject="FortKnox Security - Login Verification Code",
+        subject="Your FortKnox Login Verification Code",
         recipients=[user.email],
-        body=f"Hello {user.full_name},\n\nYour login verification code is: {otp_code}\n\nThis code will expire in 2 minutes.\n\nIf you did not attempt to log in, please ignore this email.\n\nStay Secure,\nFortKnox Team",
-        subtype=MessageType.plain
+        body=get_otp_email_html(user.full_name, otp_code),
+        subtype=MessageType.html
     )
     background_tasks.add_task(fastmail.send_message, message)
+
     
     return {
         "login_pending": True,
@@ -354,6 +363,34 @@ def login_verify_otp(
     
     return {"access_token": access_token, "token_type": "bearer"}
 
+
+@app.post("/auth/refresh", response_model=schemas.Token)
+def refresh_token(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """
+    Refresh the JWT token for an active user session.
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+        
+    session_jti = auth.generate_session_id()
+    fingerprint = auth.compute_fingerprint(request)
+    
+    user.session_id = session_jti
+    user.session_fingerprint = fingerprint
+    
+    access_token, _ = auth.create_access_token(
+        data={"sub": user.email, "role": user.role, "jti": session_jti}
+    )
+    
+    db.commit()
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
 # ==================== OTP ====================
 
 @app.post("/send-otp", response_model=schemas.OTPResponse)
@@ -375,13 +412,14 @@ async def send_otp(
         PENDING_REGISTRATIONS[otp_request.email]["expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=10)
         
         message = MessageSchema(
-            subject="FortKnox Security - Your Verification Code",
+            subject="Your FortKnox Account Verification Code",
             recipients=[otp_request.email],
-            body=f"Hello {user_name},\n\nYour security verification code is: {otp_code}\n\nThis code will expire in 2 minutes.\n\nStay Secure,\nFortKnox Team",
-            subtype=MessageType.plain
+            body=get_registration_otp_html(user_name, otp_code),
+            subtype=MessageType.html
         )
         background_tasks.add_task(fastmail.send_message, message)
         return {"message": "A verification code has been sent to your registered email.", "dev_otp": None}
+
         
     user = db.query(models.User).filter(models.User.email == otp_request.email).first()
     if not user:
@@ -406,11 +444,12 @@ async def send_otp(
     db.commit()
 
     message = MessageSchema(
-        subject="FortKnox Security - Your Verification Code",
+        subject="Your FortKnox Account Verification Code",
         recipients=[user.email],
-        body=f"Hello {user.full_name},\n\nYour security verification code is: {otp_code}\n\nThis code will expire in 2 minutes.\n\nStay Secure,\nFortKnox Team",
-        subtype=MessageType.plain
+        body=get_registration_otp_html(user.full_name, otp_code),
+        subtype=MessageType.html
     )
+
 
     background_tasks.add_task(fastmail.send_message, message)
 
@@ -767,7 +806,75 @@ def update_profile(
     
     return user
 
+# ==================== USER ACTIVITY & LOGS ====================
+
+@app.get("/profile/recent-activity", response_model=list[schemas.AuditLogResponse])
+def get_recent_activity(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Get the last 3 audit logs for the current user."""
+    return db.query(models.AuditLog).filter(
+        models.AuditLog.performed_by == current_user_email
+    ).order_by(models.AuditLog.timestamp.desc()).limit(3).all()
+
+@app.get("/profile/last-login")
+def get_last_login(
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Find the timestamp of the last successful login for the current user."""
+    # Find the second most recent LOGIN_SUCCESS (the most recent is the current session)
+    log_entry = db.query(models.AuditLog).filter(
+        models.AuditLog.performed_by == current_user_email,
+        models.AuditLog.action == "LOGIN_SUCCESS"
+    ).order_by(models.AuditLog.timestamp.desc()).offset(1).limit(1).first()
+    
+    if log_entry:
+        return {"last_login": log_entry.timestamp}
+    return {"last_login": None}
+
+
 # ==================== ADMIN ====================
+
+@app.get("/admin/stats", response_model=schemas.AdminDashboardStats)
+def get_admin_stats(
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(auth.require_admin)
+):
+    """Admin/Superadmin: Get platform-wide metrics."""
+    total_users = db.query(models.User).count()
+    job_seekers = db.query(models.User).filter(models.User.role == "job_seeker").count()
+    recruiters = db.query(models.User).filter(models.User.role == "recruiter").count()
+    admins = db.query(models.User).filter(models.User.role == "admin").count()
+    
+    jobs_posted = db.query(models.Job).count()
+    applications = db.query(models.Application).count()
+    pending_requests = db.query(models.AdminActionQueue).filter(models.AdminActionQueue.status == "pending").count()
+    
+    system_logs = db.query(models.AuditLog).count()
+    admin_approvals = db.query(models.User).filter(models.User.role == "admin", models.User.is_admin_approved == False).count()
+    suspended_users = db.query(models.User).filter(models.User.is_active == False).count()
+    verified_users = db.query(models.User).filter(models.User.is_verified == True).count()
+    
+    blockchain_records = db.query(models.Block).count()
+    reports_filed = db.query(models.Report).count()
+    
+    return {
+        "total_users": total_users,
+        "job_seekers": job_seekers,
+        "recruiters": recruiters,
+        "admins": admins,
+        "jobs_posted": jobs_posted,
+        "applications": applications,
+        "pending_requests": pending_requests,
+        "system_logs": system_logs,
+        "admin_approvals": admin_approvals,
+        "suspended_users": suspended_users,
+        "verified_users": verified_users,
+        "blockchain_records": blockchain_records,
+        "reports_filed": reports_filed
+    }
 
 @app.get("/admin/users", response_model=list[schemas.UserListItem])
 def list_all_users(
@@ -1039,13 +1146,32 @@ def create_company(
     
     if user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Only recruiters can create company pages")
+    # MAX COMPANY LIMIT
+    company_count = db.query(models.Company).filter(models.Company.recruiter_id == user.id).count()
+    if company_count >= 3:
+        raise HTTPException(status_code=403, detail="You have reached the maximum limit of 3 company profiles.")
         
+    # DUPLICATE COMPANY DETECTION
+    existing_company = db.query(models.Company).filter(
+        models.Company.recruiter_id == user.id,
+        models.Company.name.ilike(company.name)
+    ).first()
+    if existing_company:
+        raise HTTPException(status_code=400, detail="A company with this name already exists in your profile.")
+
+    # URL SANITATION
+    website_url = company.website.strip() if company.website else ""
+    if website_url:
+        website_url = website_url.replace(" ", "")
+        if not website_url.startswith("http://") and not website_url.startswith("https://"):
+            website_url = "https://" + website_url
+            
     new_company = models.Company(
         recruiter_id=user.id,
         name=company.name,
         description=company.description,
         location=company.location,
-        website=company.website
+        website=website_url
     )
     db.add(new_company)
     
@@ -1058,6 +1184,62 @@ def create_company(
 @app.get("/companies", response_model=list[schemas.CompanyResponse])
 def list_companies(db: Session = Depends(get_db)):
     return db.query(models.Company).all()
+
+@app.put("/companies/{company_id}", response_model=schemas.CompanyResponse)
+def update_company(
+    company_id: int,
+    company: schemas.CompanyCreate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    db_company = db.query(models.Company).filter(models.Company.id == company_id).first()
+    if not db_company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if db_company.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this company")
+        
+    website_url = company.website.strip() if company.website else ""
+    if website_url:
+        website_url = website_url.replace(" ", "")
+        if not website_url.startswith("http://") and not website_url.startswith("https://"):
+            website_url = "https://" + website_url
+
+    db_company.name = company.name
+    db_company.description = company.description
+    db_company.location = company.location
+    db_company.website = website_url
+    
+    db.commit()
+    db.refresh(db_company)
+    return db_company
+
+@app.delete("/companies/{company_id}")
+def delete_company(
+    company_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    db_company = db.query(models.Company).filter(models.Company.id == company_id).first()
+    if not db_company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if db_company.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this company")
+        
+    from datetime import datetime
+    active_jobs = db.query(models.Job).filter(
+        models.Job.company_id == company_id,
+        (models.Job.deadline == None) | (models.Job.deadline > datetime.now())
+    ).count()
+    
+    if active_jobs > 0:
+        raise HTTPException(status_code=400, detail=f"This company has {active_jobs} active job postings.")
+        
+    db.delete(db_company)
+    db.commit()
+    create_audit_log(db, "COMPANY_DELETED", user.email, f"Company ID: {company_id}")
+    return {"detail": "Company deleted successfully"}
 
 # ==================== JOB ====================
 
@@ -1136,6 +1318,25 @@ def post_job(
     ).first()
     if not company:
         raise HTTPException(status_code=403, detail="You can only post jobs for your own companies")
+    
+    # MAX JOBS LIMIT: Check active jobs
+    active_jobs_count = db.query(models.Job).filter(
+        models.Job.recruiter_id == user.id,
+        (models.Job.deadline == None) | (models.Job.deadline > datetime.now(timezone.utc))
+    ).count()
+    
+    if active_jobs_count >= 5:
+        raise HTTPException(status_code=403, detail="You have reached the maximum limit of 5 active job postings.")
+        
+    # DUPLICATE DETECTION
+    existing_job = db.query(models.Job).filter(
+        models.Job.company_id == job.company_id,
+        models.Job.title.ilike(job.title),
+        (models.Job.deadline == None) | (models.Job.deadline > datetime.now(timezone.utc))
+    ).first()
+    
+    if existing_job:
+        raise HTTPException(status_code=400, detail="An active job with this title already exists for this company.")
     
     new_job = models.Job(
         recruiter_id=user.id,
@@ -1227,17 +1428,22 @@ def list_my_applications(
     results = db.query(
         models.Application, 
         models.Job.title.label("job_title"),
-        models.Job.recruiter_id.label("recruiter_id") 
+        models.Job.recruiter_id.label("recruiter_id"),
+        models.Job.company_id.label("company_id"),
+        models.Job.location.label("location"),
+        models.Company.name.label("company_name")
     ).join(models.Job, models.Job.id == models.Application.job_id)\
+     .outerjoin(models.Company, models.Company.id == models.Job.company_id)\
      .filter(models.Application.applicant_id == user.id).all()
 
     output = []
-    for app_obj, title, r_id in results:
+    for app_obj, title, r_id, comp_id, loc, comp_name in results:
         output.append({
             "id": app_obj.id, "job_id": app_obj.job_id, "applicant_id": app_obj.applicant_id,
             "resume_id": app_obj.resume_id, "cover_letter": app_obj.cover_letter,
             "status": app_obj.status, "applied_at": app_obj.applied_at,
-            "job_title": title, "recruiter_id": r_id 
+            "job_title": title, "recruiter_id": r_id, "company_id": comp_id, 
+            "location": loc, "company_name": comp_name or "Unknown Company"
         })
     return output
 
@@ -1730,12 +1936,13 @@ async def request_password_reset(
     db.commit()
 
     message = MessageSchema(
-        subject="FortKnox - Password Reset Code",
+        subject="Your FortKnox Password Reset Code",
         recipients=[user.email],
-        body=f"Your password reset code is: {otp_code}\n\nDo not share this code with anyone. It expires in 2 minutes.",
-        subtype=MessageType.plain
+        body=get_password_reset_html(user.full_name, otp_code),
+        subtype=MessageType.html
     )
     background_tasks.add_task(fastmail.send_message, message)
+
     
     create_audit_log(db, "PASSWORD_RESET_REQUESTED", user.email, "User initiated password reset")
     db.commit()
@@ -1870,12 +2077,15 @@ def get_my_connections(
         other_user = db.query(models.User).filter(models.User.id == other_id).first()
         if other_user:
             result.append({
+                "id": other_user.id,
+                "request_id": conn.id,
                 "connection_id": conn.id,
                 "user_id": other_user.id,
                 "full_name": other_user.full_name,
                 "headline": other_user.headline,
                 "role": other_user.role,
-                "profile_picture": other_user.profile_picture
+                "profile_picture": other_user.profile_picture,
+                "created_at": conn.created_at
             })
     
     return result
@@ -1967,8 +2177,21 @@ def create_group(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """Create a group chat and add members."""
+    """Create a group chat with recruiter restrictions."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    
+    if user.role == 'recruiter':
+        # 1 group per job posting
+        jobs_posted = db.query(models.Job).filter(models.Job.created_by == user.id).count()
+        groups_created = db.query(models.Group).filter(models.Group.created_by == user.id).count()
+        if groups_created >= jobs_posted:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Group limit reached. You have {jobs_posted} job posting(s) and {groups_created} group(s). Post more jobs to create more groups."
+            )
+        # Max 50 members (49 + creator)
+        if len(group_data.member_ids) > 49:
+            raise HTTPException(status_code=400, detail="A group can have at most 50 members (including you).")
     
     new_group = models.Group(
         name=group_data.name,
@@ -1989,14 +2212,17 @@ def create_group(
     create_audit_log(db, "GROUP_CREATED", user.email, f"Group: {group_data.name}")
     db.commit()
     db.refresh(new_group)
-    return new_group
+    # Return with member_count
+    count = db.query(models.GroupMember).filter(models.GroupMember.group_id == new_group.id).count()
+    return {**new_group.__dict__, "member_count": count}
+
 
 @app.get("/groups/my", response_model=list[schemas.GroupResponse])
 def get_my_groups(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    """List all groups the user is a member of."""
+    """List all groups the user is a member of, with member counts."""
     user = db.query(models.User).filter(models.User.email == current_user_email).first()
     
     group_ids = db.query(models.GroupMember.group_id).filter(
@@ -2004,7 +2230,13 @@ def get_my_groups(
     ).all()
     ids = [gid[0] for gid in group_ids]
     
-    return db.query(models.Group).filter(models.Group.id.in_(ids)).all()
+    groups = db.query(models.Group).filter(models.Group.id.in_(ids)).all()
+    result = []
+    for g in groups:
+        count = db.query(models.GroupMember).filter(models.GroupMember.group_id == g.id).count()
+        result.append({**g.__dict__, "member_count": count})
+    return result
+
 
 @app.post("/groups/{group_id}/messages", response_model=schemas.GroupMessageResponse)
 def send_group_message(
@@ -2245,9 +2477,13 @@ def mine_block(
     now = datetime.now(timezone.utc)
     new_index = last_index + 1
     
+    # Standardize timestamp string for consistent hashing
+    ts_str = now.isoformat()
     data_hash = hashlib.sha256(log_data.encode()).hexdigest()
-    block_content = f"{new_index}:{now}:{data_hash}:{previous_hash}"
+    block_content = f"{new_index}:{ts_str}:{data_hash}:{previous_hash}"
     block_hash = hashlib.sha256(block_content.encode()).hexdigest()
+
+
     
     new_block = models.Block(
         block_index=new_index,
@@ -2270,19 +2506,68 @@ def verify_blockchain(
     db: Session = Depends(get_db),
     admin_email: str = Depends(auth.require_admin)
 ):
-    """Verify the entire blockchain integrity."""
+    """Verify the entire blockchain integrity including deep data audit."""
     blocks = db.query(models.Block).order_by(models.Block.block_index.asc()).all()
     
     if not blocks:
-        return {"valid": True, "total_blocks": 0, "message": "No blocks in chain"}
+        return {"is_valid": True, "total_blocks": 0, "message": "No blocks in chain"}
     
     for i, block in enumerate(blocks):
-        # Verify chain linkage
-        if i == 0:
-            if block.previous_block_hash != "0":
-                return {"valid": False, "total_blocks": len(blocks), "message": f"Genesis block has invalid previous hash"}
-        else:
-            if block.previous_block_hash != blocks[i - 1].block_hash:
-                return {"valid": False, "total_blocks": len(blocks), "message": f"Chain broken at block #{block.block_index}"}
-    
-    return {"valid": True, "total_blocks": len(blocks), "message": "Blockchain integrity verified"}
+        # 1. Deep Data Audit: Recalculate Data Hash from original Logs
+        if block.log_ids:
+            log_ids = [int(lid.strip()) for lid in block.log_ids.split(",") if lid.strip()]
+            logs = db.query(models.AuditLog).filter(models.AuditLog.id.in_(log_ids)).all()
+            logs.sort(key=lambda x: x.id) # Ensure order
+            
+            # Recalculate precisely as in mine_block (line 2441)
+            recalc_log_data = "|".join(f"{log.id}:{log.action}:{log.performed_by}:{log.timestamp}" for log in logs)
+            recalculated_data_hash = hashlib.sha256(recalc_log_data.encode()).hexdigest()
+            
+            if recalculated_data_hash != block.data_hash:
+                return {"is_valid": False, "total_blocks": len(blocks), "message": f"Data mismatch detected in Block #{block.block_index}"}
+        
+        # 2. Block Integrity: Recalculate Block Hash
+        previous_hash = "0" if i == 0 else blocks[i-1].block_hash
+        # Try both isoformat and string representation for backward compatibility with Block #0
+        ts_iso = block.timestamp.isoformat()
+        ts_str = str(block.timestamp)
+        
+        recalc_content_iso = f"{block.block_index}:{ts_iso}:{block.data_hash}:{previous_hash}"
+        recalc_hash_iso = hashlib.sha256(recalc_content_iso.encode()).hexdigest()
+        
+        recalc_content_str = f"{block.block_index}:{ts_str}:{block.data_hash}:{previous_hash}"
+        recalc_hash_str = hashlib.sha256(recalc_content_str.encode()).hexdigest()
+        
+        # Accept either calculation to handle the transition
+        if block.block_hash not in [recalc_hash_iso, recalc_hash_str]:
+            return {"is_valid": False, "total_blocks": len(blocks), "message": f"Block hash invalid for Block #{block.block_index}"}
+
+            
+        # 3. Chain Linkage: Verify link to previous block
+        if i > 0:
+            if block.previous_block_hash != blocks[i-1].block_hash:
+                return {"is_valid": False, "total_blocks": len(blocks), "message": f"Chain broken at Block #{block.block_index}"}
+                
+    return {"is_valid": True, "total_blocks": len(blocks), "message": "Blockchain integrity verified"}
+
+# ==================== CONTACT US ====================
+
+@app.post("/contact")
+@limiter.limit("5/minute")
+async def contact_form(
+    request: Request,
+    contact_data: schemas.ContactSchema,
+    background_tasks: BackgroundTasks
+):
+    try:
+        message = MessageSchema(
+            subject=f"Contact Us: Message from {contact_data.name}",
+            recipients=["fortknox914@gmail.com"],
+            body=f"Name: {contact_data.name}\nEmail: {contact_data.email}\n\nMessage:\n{contact_data.message}",
+            subtype=MessageType.plain
+        )
+        background_tasks.add_task(fastmail.send_message, message)
+        return {"message": "Message sent successfully!"}
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send message")
