@@ -110,6 +110,7 @@ class Application(Base):
     applied_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     match_score = Column(Integer, default=0)
     recruiter_notes = Column(String, nullable=True)
+    is_shortlisted = Column(Boolean, default=False)
 
 class Message(Base):
     __tablename__ = "messages"

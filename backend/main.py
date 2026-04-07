@@ -109,10 +109,10 @@ conf = ConnectionConfig(
     MAIL_USERNAME = os.environ.get("SMTP_USERNAME", "fortknox914@gmail.com"),
     MAIL_PASSWORD = os.environ.get("SMTP_PASSWORD", ""),
     MAIL_FROM = os.environ.get("SMTP_FROM", "fortknox914@gmail.com"),
-    MAIL_PORT = int(os.environ.get("SMTP_PORT", "587")),
+    MAIL_PORT = int(os.environ.get("SMTP_PORT", "465")),
     MAIL_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com"),
-    MAIL_STARTTLS = True,
-    MAIL_SSL_TLS = False,
+    MAIL_STARTTLS = False,
+    MAIL_SSL_TLS = True,
     USE_CREDENTIALS = True,
     VALIDATE_CERTS = True
 )
@@ -218,7 +218,16 @@ def register_user(request: Request, user: schemas.UserCreate, background_tasks: 
         "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
     }
     
-    return {"message": "Registration pending, verifying OTP", "email": user.email}
+    # Send OTP immediately upon registration
+    message = MessageSchema(
+        subject="Your FortKnox Account Verification Code",
+        recipients=[user.email],
+        body=get_registration_otp_html(user.full_name, otp_code),
+        subtype=MessageType.html
+    )
+    background_tasks.add_task(fastmail.send_message, message)
+    
+    return {"message": "Registration pending, please check your email for the verification code.", "email": user.email}
 
 # ==================== LOGIN (2-Step OTP for users, direct for superadmin) ====================
 
@@ -295,13 +304,13 @@ async def login(
         subtype=MessageType.html
     )
     background_tasks.add_task(fastmail.send_message, message)
-
+    logger.info(f"OTP for {user.email}: {otp_code}")
     
-    return {
-        "login_pending": True,
-        "email": user.email,
-        "message": "OTP sent to your email. Please verify to complete login."
-    }
+    response_data = {"login_pending": True, "email": user.email, "message": "OTP sent to your email. Check your inbox."}
+    if not IS_PRODUCTION:
+        response_data["dev_otp"] = otp_code
+        
+    return response_data
 
 
 @app.post("/login/verify-otp", response_model=schemas.Token)

@@ -47,9 +47,9 @@ const JobSeekerCard = () => {
       <motion.div className="cy-card-spinning-graphic" animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <div className="cy-card-avatar">LS</div>
+        <div className="cy-card-avatar">NC</div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: '18px' }}>Lokesh Singh</div>
+          <div style={{ fontWeight: 700, fontSize: '18px' }}>Nitin Choudhury</div>
           <div style={{ fontSize: '13px', color: 'var(--cy-text-mute)' }}>Senior Engineer · FortKnox Verified ✓</div>
         </div>
       </div>
