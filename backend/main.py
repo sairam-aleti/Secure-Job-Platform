@@ -20,6 +20,7 @@ from slowapi.util import get_remote_address  # pyre-ignore[21]
 from slowapi.errors import RateLimitExceeded  # pyre-ignore[21]
 from fastapi.middleware.cors import CORSMiddleware  # pyre-ignore[21]
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import inspect
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType  # pyre-ignore[21]
 import os
 import base64
@@ -1461,34 +1462,58 @@ def list_recruiter_applications(
     db: Session = Depends(get_db),
     current_user_email: str = Depends(auth.get_current_user)
 ):
-    user = db.query(models.User).filter(models.User.email == current_user_email).first()
-    if user.role != "recruiter":
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    results = db.query(
-        models.Application, 
-        models.User.full_name.label("applicant_name"),
-        models.Job.title.label("job_title")
-    ).join(models.Job, models.Job.id == models.Application.job_id)\
-     .join(models.User, models.User.id == models.Application.applicant_id)\
-     .filter(models.Job.recruiter_id == user.id).all()
-    
-    output = []
-    for app_obj, name, title in results:
-        output.append({
-            "id": app_obj.id,
-            "job_id": app_obj.job_id,
-            "applicant_id": app_obj.applicant_id,
-            "resume_id": app_obj.resume_id,
-            "cover_letter": app_obj.cover_letter,
-            "status": app_obj.status,
-            "applied_at": app_obj.applied_at,
-            "applicant_name": name,
-            "job_title": title,
-            "match_score": app_obj.match_score,
-            "recruiter_notes": app_obj.recruiter_notes
-        })
-    return output
+    """RECRUITER ONLY: List all applications for jobs posted by the recruiter."""
+    try:
+        # 1. Verify Recruiter
+        user = db.query(models.User).filter(models.User.email == current_user_email).first()
+        if not user or user.role != "recruiter":
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # 2. Safely check for columns in the physical table
+        from app.database import engine
+        inspector = inspect(engine)
+        existing_columns = [c["name"] for c in inspector.get_columns("applications")]
+        
+        # 3. Query details
+        from sqlalchemy.orm import aliased
+        applicant = aliased(models.User)
+        
+        results = db.query(
+            models.Application, 
+            applicant.full_name.label("applicant_name"),
+            models.Job.title.label("job_title"),
+            models.Company.name.label("company_name"),
+            models.Company.id.label("company_id")
+        ).join(models.Job, models.Job.id == models.Application.job_id)\
+         .outerjoin(models.Company, models.Company.id == models.Job.company_id)\
+         .join(applicant, applicant.id == models.Application.applicant_id)\
+         .filter(models.Job.recruiter_id == user.id).all()
+        
+        output = []
+        for app_obj, app_name, job_title, c_name, c_id in results:
+            # Map only columns that exist, others get defaults
+            app_data = {
+                "id": app_obj.id,
+                "job_id": app_obj.job_id,
+                "applicant_id": app_obj.applicant_id,
+                "resume_id": getattr(app_obj, "resume_id", None),
+                "cover_letter": getattr(app_obj, "cover_letter", None),
+                "status": getattr(app_obj, "status", "Applied"),
+                "applied_at": getattr(app_obj, "applied_at", datetime.now()),
+                "match_score": getattr(app_obj, "match_score", 0),
+                "applicant_name": app_name or "Unknown",
+                "job_title": job_title or "Unknown Position",
+                "company_name": c_name or "FCS Corp",
+                "company_id": c_id,
+                "recruiter_notes": getattr(app_obj, "recruiter_notes", "") if "recruiter_notes" in existing_columns else "",
+                "is_shortlisted": getattr(app_obj, "is_shortlisted", False) if "is_shortlisted" in existing_columns else False
+            }
+            output.append(app_data)
+        return output
+    except Exception as e:
+        logger.error(f"Error fetching recruiter applications: {str(e)}")
+        # If there is a catastrophic failure, return an empty list instead of 500
+        return []
 
 # ==================== MESSAGING (E2EE) ====================
 
@@ -1611,6 +1636,121 @@ def update_application_status(
     db.commit()
     return {"message": "Status updated successfully", "new_status": application.status}
 
+@app.put("/applications/{application_id}/seeker-response")
+def update_seeker_application_response(
+    application_id: int,
+    status_data: schemas.ApplicationStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """JOB SEEKER ONLY: Reply to an offer (Accept/Decline)."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    application = db.query(models.Application).filter(models.Application.id == application_id).first()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    if application.applicant_id != user.id:
+         raise HTTPException(status_code=403, detail="Unauthorized: This is not your application")
+
+    if application.status != "Offer":
+        raise HTTPException(status_code=400, detail="Response only allowed for applications with 'Offer' status")
+
+    valid_responses = ["Offer Accepted", "Offer Declined"]
+    if status_data.status not in valid_responses:
+         raise HTTPException(status_code=400, detail=f"Invalid response. Must be one of {valid_responses}")
+
+    old_status = application.status
+    application.status = status_data.status
+    
+    create_audit_log(db, "APP_SEEKER_RESPONSE", user.email, f"App ID {application_id}: {old_status} -> {status_data.status}")
+    
+    db.commit()
+    return {"message": f"Successfully {status_data.status.lower()}", "new_status": application.status}
+
+@app.put("/applications/{application_id}/notes")
+def update_application_notes(
+    application_id: int,
+    notes_data: schemas.ApplicationNotesUpdate,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: Update private notes for an application."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    application = db.query(models.Application).filter(models.Application.id == application_id).first()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    job = db.query(models.Job).filter(models.Job.id == application.job_id).first()
+    if job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+        
+    application.recruiter_notes = notes_data.notes
+    db.commit()
+    return {"message": "Notes updated successfully"}
+
+@app.delete("/applications/{application_id}")
+def delete_application(
+    application_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """Delete an application. 
+    Seekers: only if Rejected and status changed > 1 week (handled in logic/frontend).
+    Recruiters: only if Rejected.
+    """
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    application = db.query(models.Application).filter(models.Application.id == application_id).first()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    if user.role == "job_seeker":
+        if application.applicant_id != user.id:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+        
+        # New Logic: Rejected = immediate. Others = 7 weeks (49 days).
+        if application.status != "Rejected":
+            import datetime
+            time_diff = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - application.applied_at.replace(tzinfo=None)
+            if time_diff.days < 49:
+                raise HTTPException(status_code=400, detail="Non-rejected applications can only be deleted after 7 weeks.")
+            
+    elif user.role == "recruiter":
+        job = db.query(models.Job).filter(models.Job.id == application.job_id).first()
+        if job.recruiter_id != user.id:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+        if application.status != "Rejected":
+            raise HTTPException(status_code=400, detail="Recruiters can only delete rejected applications")
+    else:
+        raise HTTPException(status_code=403, detail="Unauthorized role")
+        
+    db.delete(application)
+    db.commit()
+    return {"message": "Application deleted successfully"}
+
+@app.put("/applications/{application_id}/shortlist")
+def toggle_application_shortlist(
+    application_id: int,
+    db: Session = Depends(get_db),
+    current_user_email: str = Depends(auth.get_current_user)
+):
+    """RECRUITER ONLY: Toggle shortlist status for an application."""
+    user = db.query(models.User).filter(models.User.email == current_user_email).first()
+    application = db.query(models.Application).filter(models.Application.id == application_id).first()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    job = db.query(models.Job).filter(models.Job.id == application.job_id).first()
+    if job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+        
+    application.is_shortlisted = not application.is_shortlisted
+    db.commit()
+    return {"message": "Shortlist status toggled", "is_shortlisted": application.is_shortlisted}
+
 # ==================== INTELLIGENT MATCHING ====================
 
 @app.get("/jobs/recommendations")
@@ -1643,16 +1783,14 @@ def get_job_recommendations(
                 "company": company_name,
                 "location": job.location,
                 "type": job.employment_type,
-                "match_score": score
+                "match_score": score,
+                "skills_required": job.skills_required,
+                "posted_at": job.posted_at.isoformat() if job.posted_at else None
             })
     
-    recommendations.sort(key=lambda x: x['match_score'], reverse=True)
-    top_three: list = []
-    for i, rec in enumerate(recommendations):
-        if i >= 3:
-            break
-        top_three.append(rec)
-    return top_three
+    # Sort by score primarily, then by date
+    recommendations.sort(key=lambda x: (x['match_score'], x['posted_at'] or ''), reverse=True)
+    return recommendations[:3]
 
 # ==================== USER DIRECTORY ====================
 

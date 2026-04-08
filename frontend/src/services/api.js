@@ -104,7 +104,10 @@ export const applicationAPI = {
   myApplications: () => api.get('/applications/my'),
   recruiterApplications: () => api.get('/applications/recruiter'),
   updateStatus: (id, status) => api.put(`/applications/${id}/status`, { status }),
+  seekerResponse: (id, status) => api.put(`/applications/${id}/seeker-response`, { status }),
   updateNotes: (id, notes) => api.put(`/applications/${id}/notes`, { notes }),
+  toggleShortlist: (id) => api.put(`/applications/${id}/shortlist`),
+  delete: (id) => api.delete(`/applications/${id}`),
 };
 
 export const messageAPI = {

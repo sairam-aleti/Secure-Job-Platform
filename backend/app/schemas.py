@@ -216,11 +216,11 @@ class ApplicationResponse(BaseModel):
     id: int
     job_id: int
     applicant_id: int
-    resume_id: int
+    resume_id: Optional[int] = None
     cover_letter: Optional[str]
     status: str
     applied_at: datetime
-    match_score: int
+    match_score: Optional[int] = 0
     
     class Config:
         from_attributes = True
@@ -229,7 +229,10 @@ class ApplicationResponse(BaseModel):
 class ApplicationDetail(ApplicationResponse):
     applicant_name: str
     job_title: str
+    company_name: Optional[str] = None
+    company_id: Optional[int] = None
     recruiter_notes: Optional[str] = None
+    is_shortlisted: bool = False
 
 # --- MESSAGING SCHEMAS ---
 
@@ -266,7 +269,7 @@ class AuditLogResponse(BaseModel):
 
 # SECURITY FIX: Restrict status to valid values only
 class ApplicationStatusUpdate(BaseModel):
-    status: Literal["Applied", "Reviewed", "Interview", "Offer", "Rejected"]
+    status: Literal["Applied", "Reviewed", "Interviewed", "Offer", "Rejected", "Offer Accepted", "Offer Declined"]
 
 # --- CONNECTION SCHEMAS ---
 

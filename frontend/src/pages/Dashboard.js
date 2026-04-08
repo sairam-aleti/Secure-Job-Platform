@@ -10,11 +10,36 @@ const cardVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
 };
 
-function Dashboard() {
+const Dashboard = () => {
+  const getStatusClass = (status) => {
+    switch (status) {
+      case 'Offer': return 'offered-card-highlight';
+      case 'Offer Accepted': return 'accepted-card-highlight';
+      case 'Offer Declined': return 'declined-card-highlight';
+      case 'Rejected': return 'rejected-card-highlight';
+      case 'Reviewed': return 'reviewed-card-highlight';
+      case 'Interviewed': return 'interviewed-card-highlight';
+      default: return 'applied-card-highlight';
+    }
+  };
+
+  const getInitials = (name) => {
+    if (!name) return '??';
+    const parts = name.split(' ');
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.substring(0, 2).toUpperCase();
+  };
+
   const [profile, setProfile] = useState(null);
   const [resumes, setResumes] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [seekerAppPage, setSeekerAppPage] = useState(1);
+  const [recruiterAppPage, setRecruiterAppPage] = useState(1);
+  const appsPerPage = 3;
+  const [appError, setAppError] = useState(null);
+  const [visibleRecruiterApps, setVisibleRecruiterApps] = useState(3);
+  const [appCompanyFilter, setAppCompanyFilter] = useState('all');
   const [pendingRequests, setPendingRequests] = useState([]);
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -65,9 +90,13 @@ function Dashboard() {
 
   const fetchRecruiterApplications = useCallback(async () => {
     try {
+      setAppError(null);
       const response = await applicationAPI.recruiterApplications();
       setApplications(response.data);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+      setAppError("Failed to load applications. Please refresh or contact support.");
+    }
   }, []);
 
   const fetchPendingRequests = useCallback(async () => {
@@ -103,42 +132,27 @@ function Dashboard() {
     } catch (err) { console.error("Failed to fetch notifications", err); }
   }, []);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // setupEncryption — FALLBACK ONLY.
-  //
-  // The primary key setup now happens in Login.js → completeLogin(), where
-  // derived_key is guaranteed to be available. This function only runs if:
-  //   • The user somehow arrives at Dashboard without keys being set up
-  //     (e.g. an old user account that predates the encryption feature, or
-  //      a rare edge case where login key setup failed silently).
-  //
-  // It does NOT regenerate keys if they already exist in localStorage,
-  // preventing unnecessary key churn on every Dashboard load.
-  // ─────────────────────────────────────────────────────────────────────────────
   const setupEncryption = useCallback(async () => {
     const derivedKeyB64 = sessionStorage.getItem('derived_key');
-    if (!derivedKeyB64) return; // derived_key gone (tab closed) — can't do anything here
+    if (!derivedKeyB64) return; 
 
     try {
       const existingEncryptedKey = localStorage.getItem('encrypted_private_key');
 
       if (existingEncryptedKey) {
-        // Keys exist locally — make sure public key AND encrypted private key are in the backend.
         const privKey = cryptoService.decryptPrivateKey(existingEncryptedKey, derivedKeyB64);
         if (privKey) {
           const pubKey = cryptoService.getPublicKeyFromPrivate(privKey);
           await authAPI.updatePublicKey({ public_key: pubKey, encrypted_private_key: existingEncryptedKey });
         }
       } else {
-        // Check if backend already has keys (e.g. logged in from another device)
         try {
           const profRes = await profileAPI.getProfile();
           if (profRes.data.encrypted_private_key) {
             localStorage.setItem('encrypted_private_key', profRes.data.encrypted_private_key);
-            return; // Keys restored from server
+            return; 
           }
-        } catch (e) { /* ignore */ }
-        // Truly no keys anywhere — generate fresh
+        } catch (e) { }
         const { publicKey, privateKey } = cryptoService.generateKeyPair();
         const encryptedPrivKey = cryptoService.encryptPrivateKey(privateKey, derivedKeyB64);
         localStorage.setItem('encrypted_private_key', encryptedPrivKey);
@@ -190,22 +204,16 @@ function Dashboard() {
   const fetchProfile = useCallback(async () => {
 
     try {
-      // Step 1: Get critical profile data first
       const response = await profileAPI.getProfile();
       const userData = response.data;
       setProfile(userData);
 
-      // Step 2: Prepare a list of all secondary data fetches
       const promises = [];
 
-      // ── KEY SYNC ──────────────────────────────────────────────────────────
-      // ALWAYS sync encryption keys on dashboard load so the public key is
-      // always available in the backend for other users to encrypt DMs.
       const derivedKeyB64 = sessionStorage.getItem('derived_key');
       if (derivedKeyB64) {
         promises.push(setupEncryption());
       }
-      // ─────────────────────────────────────────────────────────────────────
 
       if (userData.role === 'job_seeker') {
         promises.push(fetchResumes());
@@ -222,16 +230,11 @@ function Dashboard() {
         promises.push(fetchMyConnections());
         promises.push(fetchProfileViewers());
       } else {
-        // Admin/Superadmin exclusive dashboard data
         promises.push(fetchPlatformStats());
         promises.push(fetchRecentActivity());
         promises.push(fetchLastLogin());
       }
 
-
-      // Step 3: Run all fetches in parallel
-      // We use a small timeout to ensure the overlay stays at least 800ms for "polish" 
-      // but no more than 1.5s total if data is fast.
       promises.push(fetchUnreadCounts());
 
       const minDisplayTime = new Promise(resolve => setTimeout(resolve, 1000));
@@ -261,7 +264,6 @@ function Dashboard() {
 
     const interval = setInterval(fetchUnreadCounts, 10000);
 
-    // Session Watchdog
     const checkSession = () => {
       const tk = localStorage.getItem('access_token');
       if (!tk) return;
@@ -341,18 +343,23 @@ function Dashboard() {
   };
 
   const handleDownload = async (resumeId, filename) => {
+    if (!resumeId) {
+      alert("No resume available for this application.");
+      return;
+    }
     try {
       const response = await resumeAPI.download(resumeId);
-      const blob = new Blob([response.data]);
+      const blob = new Blob([response.data], { type: response.headers['content-type'] });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = filename;
+      link.download = filename || 'resume.pdf';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
+      console.error("Download error:", err);
       alert('Download failed: Not authorized or file error.');
     }
   };
@@ -456,9 +463,7 @@ function Dashboard() {
 
       <main className="app-content">
         {(profile?.role === 'admin' || profile?.role === 'superadmin') ? (
-          /* --- ADMIN/SUPERADMIN REDESIGNED CARDS --- */
           <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
-            {/* PLATFORM USERS & PLATFORM ACTIVITY - NOW VERTICAL STACK */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '20px' }}>
               <motion.div className="metric-card" variants={cardVariants} style={{ marginBottom: 0 }}>
 
@@ -505,7 +510,6 @@ function Dashboard() {
               </motion.div>
             </div>
 
-            {/* ACCOUNT INFO & RECENT ACTIVITY ROW - ALIGN TOP/BOTTOM */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'stretch' }}>
               <motion.div className="metric-card" variants={cardVariants} style={{ marginBottom: 0, height: '100%' }}>
 
@@ -557,7 +561,6 @@ function Dashboard() {
             </div>
           </motion.div>
         ) : (
-          /* --- ORIGINAL STATS ROW (Job Seekers & Recruiters) --- */
           <motion.div className="stats-row" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
             <motion.div className="stat-item" variants={cardVariants}>
               <div className="stat-label">Email</div>
@@ -581,7 +584,6 @@ function Dashboard() {
         )}
 
 
-        {/* --- RECRUITER VIEW --- */}
         {profile?.role === 'recruiter' && (
           <>
             <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
@@ -704,88 +706,188 @@ function Dashboard() {
               )}
             </motion.div>
 
-            {applications.length > 0 && (
-              <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
-                <div className="card-header">
+            <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
+              <div className="card-header" style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                   <h3>Received Applications</h3>
                   <span className="card-badge" style={{ background: 'rgba(10,102,194,0.08)', color: 'var(--cy-brand)' }}>
                     {applications.length} Total
                   </span>
                 </div>
-                <ul className="resume-list">
-                  {applications.map((app) => (
-                    <li key={app.id} className="resume-item" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '15px' }}>
-                        <div className="resume-info">
-                          <div className="resume-details">
-                            <span className="resume-name">
-                              {app.applicant_name}
-                              <span className="card-badge" style={{ marginLeft: '10px', background: app.match_score > 70 ? 'rgba(5,150,105,0.1)' : 'rgba(245,158,11,0.1)', color: app.match_score > 70 ? '#065f46' : '#9a3412' }}>
+                <div className="filter-wrapper">
+                  <select 
+                    className="filter-select"
+                    value={appCompanyFilter}
+                    onChange={(e) => {
+                      setAppCompanyFilter(e.target.value);
+                      setRecruiterAppPage(1);
+                    }}
+                  >
+                    <option value="all">All Companies</option>
+                    {[...new Set(applications.map(app => app.company_name))].map(company => (
+                      <option key={company} value={company}>{company}</option>
+                    ))}
+                  </select>
+                  <svg className="filter-triangle" width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                </div>
+              </div>
+              {appError ? (
+                <div className="error-message" style={{ margin: '20px' }}>
+                  {appError}
+                </div>
+              ) : applications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--cy-text-mute)' }}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '16px', opacity: 0.3 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                  <p style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: '500' }}>No applications received yet.</p>
+                  <p style={{ fontSize: '12px', marginTop: '4px' }}>Once job seekers apply for your roles, they will appear here.</p>
+                </div>
+              ) : (
+                <>
+                  <ul className="resume-list">
+                    {[...applications]
+                      .filter(app => appCompanyFilter === 'all' || app.company_name === appCompanyFilter)
+                      .sort((a,b) => new Date(b.applied_at) - new Date(a.applied_at))
+                      .slice((recruiterAppPage - 1) * appsPerPage, recruiterAppPage * appsPerPage)
+                      .map((app) => (
+                        <li key={app.id} className={`resume-item ${getStatusClass(app.status)}`} style={{ 
+                          flexDirection: 'column', 
+                          alignItems: 'flex-start', 
+                          position: 'relative',
+                          padding: '20px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '15px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div className="candidate-avatar">{getInitials(app.applicant_name)}</div>
+                              <div className="resume-info">
+                                <div className="resume-details">
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span className="resume-name" style={{ color: '#111', fontSize: '15px', fontWeight: '500' }}>
+                                      {app.applicant_name}
+                                    </span>
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          await applicationAPI.toggleShortlist(app.id);
+                                          fetchRecruiterApplications();
+                                        } catch (err) { console.error("Shortlist toggle failed"); }
+                                      }}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: app.is_shortlisted ? '#f59e0b' : '#d1d5db' }}
+                                      title={app.is_shortlisted ? "Remove from shortlist" : "Add to shortlist"}
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill={app.is_shortlisted ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                                    </button>
+                                  </div>
+                                  <div style={{ fontSize: '13px', color: 'var(--cy-text-mute)', marginTop: '2px' }}>
+                                    {app.company_name || 'FCS Corp'} • {app.job_title}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                              <select
+                                disabled={app.status === 'Offer Accepted' || app.status === 'Offer Declined'}
+                                className={`status-dropdown-semantic status-${app.status.toLowerCase().replace(/\s+/g, '-')}`}
+                                value={app.status}
+                                onChange={async (e) => {
+                                  try {
+                                    await applicationAPI.updateStatus(app.id, e.target.value);
+                                    fetchRecruiterApplications();
+                                  } catch (err) { alert("Failed to update status."); }
+                                }}
+                              >
+                                <option value="Applied" disabled={['Reviewed', 'Interviewed', 'Offer', 'Rejected'].includes(app.status)}>Applied</option>
+                                <option value="Reviewed" disabled={['Interviewed', 'Offer', 'Rejected'].includes(app.status)}>Reviewed</option>
+                                <option value="Interviewed" disabled={['Offer', 'Rejected'].includes(app.status)}>Interviewed</option>
+                                <option value="Offer" disabled={app.status === 'Rejected'}>Offer</option>
+                                <option value="Offer Accepted" disabled>Offer Accepted</option>
+                                <option value="Offer Declined" disabled>Offer Declined</option>
+                                <option value="Rejected" disabled={app.status === 'Offer Accepted' || app.status === 'Offer Declined'}>Rejected</option>
+                              </select>
+                              {app.status === 'Offer Declined' && (
+                                <span style={{ color: '#ef4444', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', marginTop: '4px' }}>Offer Declined</span>
+                              )}
+                              {app.status === 'Offer Accepted' && (
+                                <span style={{ color: '#15803d', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', marginTop: '4px' }}>Offer Accepted</span>
+                              )}
+                              <span style={{ fontSize: '11px', color: 'var(--cy-text-mute)' }}>
                                 {app.match_score !== undefined ? app.match_score : 0}% Match
                               </span>
-                            </span>
-                            <div className="resume-meta">
-                              <span>Position: {app.job_title}</span>
-                              <span>Applied: {new Date(app.applied_at).toLocaleDateString('en-GB')}</span>
                             </div>
                           </div>
-                        </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ fontSize: '10px', color: 'var(--cy-text-mute)', fontWeight: '700', fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase', letterSpacing: '1px' }}>Status:</span>
-                          <select
-                            className="status-badge"
-                            style={{ padding: '6px 12px', borderRadius: '4px', border: '1px dashed var(--cy-border)', background: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', fontFamily: 'Space Grotesk, sans-serif', fontWeight: '600' }}
-                            value={app.status}
-                            onChange={async (e) => {
-                              try {
-                                await applicationAPI.updateStatus(app.id, e.target.value);
-                                fetchRecruiterApplications();
-                              } catch (err) { alert("Failed to update status."); }
-                            }}
-                          >
-                            <option value="Applied">Applied</option>
-                            <option value="Reviewed">Reviewed</option>
-                            <option value="Interview">Interview</option>
-                            <option value="Offer">Offer</option>
-                            <option value="Rejected">Rejected</option>
-                          </select>
-                        </div>
-                      </div>
+                          <div style={{ width: '100%', marginBottom: '15px', position: 'relative' }}>
+                            <textarea
+                              className="notes-textarea"
+                              placeholder="Add private recruiter notes..."
+                              rows="2"
+                              maxLength={100}
+                              defaultValue={app.recruiter_notes || ''}
+                              onBlur={async (e) => {
+                                const newNotes = e.target.value;
+                                if (newNotes !== (app.recruiter_notes || '')) {
+                                  try { await applicationAPI.updateNotes(app.id, newNotes); } catch (err) { console.error('Notes save failed'); }
+                                }
+                              }}
+                            />
+                            <div style={{ position: 'absolute', bottom: '6px', right: '10px', fontSize: '9px', color: '#9ca3af', pointerEvents: 'none' }}>
+                              100
+                            </div>
+                          </div>
 
-                      {/* Recruiter Notes */}
-                      <div style={{ width: '100%', marginBottom: '10px' }}>
-                        <label style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--cy-text-mute)', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '4px' }}>Recruiter Notes</label>
-                        <input
-                          type="text"
-                          placeholder="Add private notes about this candidate..."
-                          defaultValue={app.recruiter_notes || ''}
-                          onBlur={async (e) => {
-                            const newNotes = e.target.value;
-                            if (newNotes !== (app.recruiter_notes || '')) {
-                              try {
-                                await applicationAPI.updateNotes(app.id, newNotes);
-                              } catch (err) { console.error('Notes save failed'); }
-                            }
-                          }}
-                          style={{
-                            width: '100%', padding: '8px 12px', borderRadius: '6px',
-                            border: '1px dashed var(--cy-border)', background: 'rgba(255,255,255,0.3)',
-                            fontSize: '12px', fontFamily: 'Inter, sans-serif', color: 'var(--cy-text-main)',
-                            outline: 'none', boxSizing: 'border-box'
-                          }}
-                        />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                              <button className="btn-filled-primary" onClick={() => handleDownload(app.resume_id, `Resume_${app.applicant_name}.pdf`)}>View Resume</button>
+                              <button className="btn-ghost-secondary" onClick={() => navigate(`/chat/${app.applicant_id}`)}>Chat with Applicant</button>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--cy-text-mute)', fontStyle: 'italic' }}>
+                                Applied : {new Date(app.applied_at).toLocaleDateString('en-GB')}
+                              </span>
+                                <span title={app.status !== 'Rejected' && app.status !== 'Offer Declined' ? "Applications can only be deleted if they are Rejected or after the Offer is Declined." : "Delete Application"}>
+                                  <button
+                                    className={`icon-btn-tint-red ${app.status !== 'Rejected' && app.status !== 'Offer Declined' ? 'disabled' : ''}`}
+                                    disabled={app.status !== 'Rejected' && app.status !== 'Offer Declined'}
+                                    onClick={async () => {
+                                      if (window.confirm("Are you sure? This action is permanent.")) {
+                                        try { await applicationAPI.delete(app.id); fetchRecruiterApplications(); } catch (err) { alert("Failed to delete."); }
+                                      }
+                                    }}
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+                                  </button>
+                                </span>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
+                  {/* Recruiter Applications Pagination */}
+                  {(() => {
+                    const filtered = applications.filter(app => appCompanyFilter === 'all' || app.company_name === appCompanyFilter);
+                    const totalPages = Math.ceil(filtered.length / appsPerPage);
+                    if (totalPages <= 1) return null;
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', padding: '20px 0', borderTop: '1px solid var(--cy-border)' }}>
+                        <button 
+                          className="btn-nav-outline" 
+                          disabled={recruiterAppPage === 1}
+                          onClick={() => setRecruiterAppPage(p => p - 1)}
+                          style={{ padding: '6px 12px', fontSize: '11px' }}
+                        >Prev</button>
+                        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--cy-text-mute)' }}>Page {recruiterAppPage} of {totalPages}</span>
+                        <button 
+                          className="btn-nav-outline" 
+                          disabled={recruiterAppPage === totalPages}
+                          onClick={() => setRecruiterAppPage(p => p + 1)}
+                          style={{ padding: '6px 12px', fontSize: '11px' }}
+                        >Next</button>
                       </div>
-
-                      <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
-                        <button className="download-btn" onClick={() => handleDownload(app.resume_id, `Resume_${app.applicant_name}.pdf`)}>View Resume</button>
-                        <button className="download-btn" onClick={() => navigate(`/chat/${app.applicant_id}`)}>Chat</button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </motion.div>
-            )}
+                    );
+                  })()}
+                </>
+              )}
+            </motion.div>
           </>
         )}
 
@@ -793,21 +895,111 @@ function Dashboard() {
         {profile?.role === 'job_seeker' && (
           <>
             {recommendations.length > 0 && (
-              <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                <div className="card-header">
+              <div className="recommended-container">
+                <div className="card-header" style={{ border: 'none', marginBottom: '0' }}>
                   <h3>Recommended for You</h3>
-                  <span className="card-badge" style={{ background: 'rgba(10,102,194,0.08)', color: 'var(--cy-brand)' }}>Intelligent Matching</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="card-badge" style={{ background: '#fff', color: '#1a6ef5', border: '1px solid #d1dbed' }}>Intelligent Matching</span>
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginTop: '10px' }}>
-                  {recommendations.map((job) => (
-                    <motion.div key={job.job_id} className="stat-item" style={{ cursor: 'pointer' }} onClick={() => navigate(`/apply/${job.job_id}`)} whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(10,102,194,0.15)' }}>
-                      <div className="stat-label" style={{ color: '#059669' }}>{job.match_score}% Match</div>
-                      <div className="stat-value" style={{ fontSize: '16px', marginBottom: '5px' }}>{job.title}</div>
-                      <div style={{ fontSize: '12px', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace' }}>{job.company} •{job.location}</div>
+                <div className="jobs-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  {recommendations.slice(0, 3).map((job) => {
+                    const score = job.match_score || 0;
+                    const pillClass = score >= 80 ? 'match-high' : score >= 40 ? 'match-mid' : 'match-low';
+                    const userSkills = (profile?.skills || '').split(',').map(s => s.trim().toLowerCase()).filter(s => s !== '');
+                    const requiredSkills = (job.skills_required || '')
+                      .replace(/[\[\]"']/g, '')
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(s => s !== '');
+                    
+                    return (
+                      <motion.div key={job.job_id} className="job-card" whileHover={{ y: -2 }} onClick={() => navigate(`/apply/${job.job_id}`)}>
+                        <div className="card-top-row">
+                          <span className={`match-pill ${pillClass}`}>{score}% Match</span>
+                          <button className="bookmark-btn" onClick={(e) => e.stopPropagation()}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                          </button>
+                        </div>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: '500', color: '#1a1a1a' }}>{job.title}</span>
+                          <span style={{ fontSize: '12px', color: '#7a8899' }}>{job.company} &bull; {job.location}</span>
+                        </div>
+
+                        <div style={{ borderTop: '1px solid #edf1f5', paddingTop: '10px', marginTop: '8px' }}>
+                          <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#a0adb8', marginBottom: '6px' }}>Skills required</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                            {requiredSkills.slice(0, 5).map(skill => (
+                              <span key={skill} style={{ 
+                                background: '#e8f0fd', 
+                                color: '#1a5cd4', 
+                                border: '1px solid #b5d0f7', 
+                                fontSize: '11px', 
+                                padding: '3px 9px', 
+                                borderRadius: '6px', 
+                                fontWeight: '400' 
+                              }}>
+                                {skill}
+                              </span>
+                            ))}
+                            {requiredSkills.length === 0 && <span style={{ fontSize: '11px', color: '#a0adb8', fontStyle: 'italic' }}>No specific skills listed</span>}
+                          </div>
+                        </div>
+
+                        <div className="hairline-divider" />
+
+                        <div className="meta-row">
+                          <div style={{ display: 'flex', gap: '12px' }}>
+                            <div className="meta-item">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                              {job.type || 'Full-time'}
+                            </div>
+                            <div className="meta-item">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                              Posted {job.posted_at ? `${Math.floor(Math.abs(new Date() - new Date(job.posted_at)) / (86400000))}d ago` : 'Recently'}
+                            </div>
+                          </div>
+                          <button 
+                            className="btn-apply-small" 
+                            style={{ background: 'var(--cy-brand)' }}
+                            onClick={(e) => { e.stopPropagation(); navigate(`/apply/${job.job_id}`); }}
+                          >
+                            Apply now
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                  
+                  {recommendations.length === 1 && (
+                    <motion.div 
+                      className="job-card" 
+                      style={{ 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        justifyContent: 'center', 
+                        alignItems: 'center', 
+                        textAlign: 'center', 
+                        padding: '24px',
+                        background: '#fcfdfe',
+                        border: '1px dashed #cbd5e1',
+                        cursor: 'pointer'
+                      }}
+                      whileHover={{ y: -2, borderColor: 'var(--cy-brand)' }}
+                      onClick={() => navigate('/profile')}
+                    >
+                      <div style={{ background: 'rgba(26,110,245,0.06)', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px' }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--cy-brand)" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                      </div>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#1a1a1a', marginBottom: '4px' }}>Want more matches?</span>
+                      <span style={{ fontSize: '12px', color: '#7a8899', lineHeight: '1.5' }}>
+                        Improve your CV and add more skills to increase your match percentage and discover more jobs.
+                      </span>
                     </motion.div>
-                  ))}
+                  )}
                 </div>
-              </motion.div>
+              </div>
             )}
 
             <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
@@ -821,7 +1013,7 @@ function Dashboard() {
                 <div className="profile-info" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div className="profile-field">
                     <span className="profile-field-label" style={{ fontWeight: 'bold' }}>Headline</span>
-                    <span className="profile-field-value" style={{ marginTop: '4px', display: 'block' }}>{profile?.headline ? (profile.headline.length > 15 ? profile.headline.substring(0, 15) + '...' : profile.headline) : 'Not set'}</span>
+                    <span className="profile-field-value" style={{ marginTop: '4px', display: 'block' }}>{profile?.headline ? (profile.headline.length > 25 ? profile.headline.substring(0, 25) + '...' : profile.headline) : 'Not set'}</span>
                   </div>
                   <div className="profile-field">
                     <span className="profile-field-label" style={{ fontWeight: 'bold' }}>Skills</span>
@@ -894,59 +1086,133 @@ function Dashboard() {
               )}
             </motion.div>
 
-            {applications.length > 0 && (
-              <motion.div className="card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}>
-                <div className="card-header"><h3>Your Applications</h3></div>
-                <ul className="resume-list">
-                  {applications.map((app) => (
-                    <li key={app.id} className="resume-item">
-                      <div className="resume-details" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <span className="resume-name" style={{ fontSize: '14px', color: '#065f46' }}>{app.job_title}</span>
-                        <span style={{ fontSize: '12px', fontFamily: 'JetBrains Mono, monospace', color: '#111', fontWeight: 'bold' }}>{app.company_name || 'Unknown Company'} &nbsp;&bull;&nbsp;{app.location || 'Remote'}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}>
-                          <span style={{ color: 'var(--cy-text-mute)' }}>Status: <span className={`status-badge ${app.status.toLowerCase()}`} style={{ marginLeft: '4px' }}>{app.status}</span></span>
-                          <span style={{ color: 'var(--cy-text-mute)' }}>Applied on:{new Date(app.applied_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          className="download-btn"
-                          style={{ position: 'relative', background: 'rgba(5,150,105,0.08)', color: '#065f46', border: '1px dashed rgba(5,150,105,0.3)', boxShadow: '0 0 6px rgba(5,150,105,0.12)' }}
-                          onClick={() => {
-                            if (!app.recruiter_id) return;
-                            const isConnected = connections.some(c => String(c.id) === String(app.recruiter_id) || String(c.user_id) === String(app.recruiter_id));
-                            const hasMessage = unreadCounts.dm && unreadCounts.dm[app.recruiter_id] > 0;
+            <motion.div className="card" style={{ marginTop: '20px' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}>
+              <div className="card-header">
+                <h3>Your Applications</h3>
+                <span className="card-badge" style={{ background: 'rgba(5,150,105,0.08)', color: '#065f46', border: '1px dashed rgba(5,150,105,0.3)' }}>{applications.length} Total</span>
+              </div>
+              {applications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '30px 0' }}>
+                   <p style={{ color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: '14px' }}>No applications yet</p>
+                </div>
+              ) : (
+                <>
+                  <ul className="resume-list">
+                    {(() => {
+                      const hasAcceptedOffer = applications.some(a => a.status === 'Offer Accepted');
+                      return [...applications]
+                        .sort((a,b) => new Date(b.applied_at) - new Date(a.applied_at))
+                        .slice((seekerAppPage - 1) * appsPerPage, seekerAppPage * appsPerPage)
+                        .map((app) => {
+                          const isRejected = app.status === 'Rejected' || app.status === 'Offer Declined';
+                          const appliedDate = new Date(app.applied_at);
+                          const sevenWeeksInMs = 7 * 7 * 24 * 60 * 60 * 1000;
+                          const canDelete = isRejected || (new Date() - appliedDate > sevenWeeksInMs);
 
-                            if (isConnected || hasMessage) {
-                              navigate(`/chat/${app.recruiter_id}`);
-                            } else {
-                              alert("First send a connection request to the recruiter.");
-                            }
-                          }}
-                          disabled={!app.recruiter_id}
-                        >
-                          Chat with Recruiter
-                          {app.recruiter_id && unreadCounts.dm && unreadCounts.dm[app.recruiter_id] > 0 && (
-                            <span className="badge-count">{unreadCounts.dm[app.recruiter_id]}</span>
-                          )}
-                        </button>
+                          const statusSteps = ['Applied', 'Reviewed', 'Interviewed', 'Offer'];
+                          let currentIdx = statusSteps.indexOf(app.status);
+                          if (app.status === 'Offer Accepted') currentIdx = 3;
+                          if (app.status === 'Offer Declined') currentIdx = 3;
+                          
+                          const activeStep = (isRejected || app.status === 'Offer Declined') ? 3 : (currentIdx !== -1 ? currentIdx : 0);
 
-                        <button
-                          className="download-btn"
-                          style={{ position: 'relative', padding: '6px 16px', fontSize: '11px', background: 'rgba(10,102,194,0.08)', color: 'var(--cy-brand)', border: '1px dashed rgba(10,102,194,0.3)', boxShadow: '0 0 6px rgba(10,102,194,0.12)' }}
-                          onClick={() => navigate(`/chat/groups`)}
-                        >
-                          Group Channels
-                          {unreadCounts.total_groups > 0 && (
-                            <span className="badge-count">{unreadCounts.total_groups}</span>
-                          )}
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </motion.div>
-            )}
+                          return (
+                            <li key={app.id} className={`resume-item ${getStatusClass(app.status)}`} style={{ 
+                              position: 'relative', 
+                              marginBottom: '15px', 
+                              flexDirection: 'column', 
+                              alignItems: 'flex-start',
+                              padding: '20px'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span style={{ fontSize: '15px', color: '#111', fontWeight: '500' }}>{app.job_title}</span>
+                                  <span style={{ fontSize: '12px', color: 'var(--cy-text-mute)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                    {app.company_name} • {app.location}
+                                  </span>
+                                </div>
+                                <span className={`status-badge ${app.status.toLowerCase().replace(/\s+/g, '-')}`} style={{ fontSize: '10px' }}>{app.status}</span>
+                              </div>
+
+                              <div style={{ width: '100%', marginTop: '10px' }}>
+                                <div className="progress-stepper">
+                                  {[0, 1, 2, 3].map((step) => {
+                                    let stepClass = 'step-upcoming';
+                                    if (isRejected && step === activeStep) stepClass = 'step-rejected';
+                                    else if (step < activeStep) stepClass = 'step-done';
+                                    else if (step === activeStep) stepClass = 'step-current';
+                                    return <div key={step} className={`step-bar ${stepClass}`} />;
+                                  })}
+                                </div>
+                                <div className="stepper-label-row">
+                                  {statusSteps.map((label, idx) => (
+                                    <span key={label} className={`step-label ${idx <= activeStep ? 'active' : ''}`}>
+                                      {label === 'Offer' && isRejected ? 'Rejected' : label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: '20px' }}>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  {app.status === 'Offer' && (
+                                    <>
+                                      <button 
+                                        className={`btn-filled-success ${hasAcceptedOffer ? 'disabled' : ''}`} 
+                                        disabled={hasAcceptedOffer}
+                                        title={hasAcceptedOffer ? "You've already accepted an offer. You cannot accept multiple offers." : ""}
+                                        onClick={async () => {
+                                          if (window.confirm("Accept this offer?")) {
+                                            try { await applicationAPI.seekerResponse(app.id, 'Offer Accepted'); fetchUserApplications(); } 
+                                            catch (err) { alert("Failed to accept."); }
+                                          }
+                                        }}>Accept Offer</button>
+                                    <button className="btn-filled-danger" onClick={async () => {
+                                      if (window.confirm("Decline this offer?")) {
+                                        try { await applicationAPI.seekerResponse(app.id, 'Offer Declined'); fetchUserApplications(); } 
+                                        catch (err) { alert("Failed to decline."); }
+                                      }
+                                    }}>Decline</button>
+                                  </>
+                                )}
+                                <button className="btn-filled-primary" onClick={() => { if (app.recruiter_id) navigate(`/chat/${app.recruiter_id}`); }}>Chat with Recruiter</button>
+                                <button className="btn-ghost-secondary" onClick={() => navigate('/chat/groups')}>Group Channels</button>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--cy-text-mute)', fontStyle: 'italic' }}>
+                                  Applied : {new Date(app.applied_at).toLocaleDateString('en-GB')}
+                                </span>
+                                <span title={!canDelete ? "Initial applications have a 7-week safety period. Deletion is only allowed for Rejected/Declined offers or after this period." : "Delete Application"}>
+                                  <button className={`icon-btn-tint-red ${!canDelete ? 'disabled' : ''}`} disabled={!canDelete} onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm("Are you sure? This cannot be undone.")) {
+                                      try { 
+                                        await applicationAPI.delete(app.id); 
+                                        fetchUserApplications(); 
+                                      } catch (err) { alert("Failed to delete application."); }
+                                    }
+                                  }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+                                  </button>
+                                </span>
+                              </div>
+                            </div>
+                          </li>
+                          );
+                        })
+                      })()
+                    }
+                  </ul>
+                  {Math.ceil(applications.length / appsPerPage) > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', padding: '20px 0', borderTop: '1px solid var(--cy-border)' }}>
+                      <button className="btn-nav-outline" disabled={seekerAppPage === 1} onClick={() => setSeekerAppPage(p => p - 1)} style={{ padding: '6px 12px', fontSize: '11px' }}>Prev</button>
+                      <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--cy-text-mute)' }}>Page {seekerAppPage} of {Math.ceil(applications.length / appsPerPage)}</span>
+                      <button className="btn-nav-outline" disabled={seekerAppPage === Math.ceil(applications.length / appsPerPage)} onClick={() => setSeekerAppPage(p => p + 1)} style={{ padding: '6px 12px', fontSize: '11px' }}>Next</button>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
           </>
         )}
 
@@ -966,7 +1232,7 @@ function Dashboard() {
                     <div className="resume-info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span className="resume-name" style={{ fontSize: '14px', color: '#065f46' }}>{viewer.viewer_name}</span>
                       <span style={{ color: 'var(--cy-text-mute)', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {new Date(viewer.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} • {new Date(viewer.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        {new Date(viewer.timestamp).toLocaleDateString('en-GB')}
                       </span>
                     </div>
                   </li>
