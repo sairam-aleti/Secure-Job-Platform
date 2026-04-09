@@ -13,7 +13,7 @@ echo "======================================================"
 echo ""
 
 # Get the project root
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)" # Absolute path to the directory containing this script
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BACKEND_DIR="$SCRIPT_DIR"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
